@@ -9,7 +9,6 @@ from reportlab.platypus import (
     PageBreak, Flowable
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.graphics.shapes import Drawing, Line
 
 # --- PROFESSIONAL COLOR PALETTE ---
 PRIMARY_COLOR = colors.HexColor("#0f172a")     # Slate 900
@@ -73,12 +72,18 @@ def header_footer(canvas, doc):
     canvas.restoreState()
 
 def generate_audit_pdf(data):
-    output_dir = "app/static"
+    # --- PATH FIX STARTS HERE ---
+    # Get the absolute path to the 'app' directory
+    # os.path.dirname(os.path.dirname(__file__)) moves up from 'app/services' to 'app'
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    output_dir = os.path.join(base_dir, "static")
+    
     os.makedirs(output_dir, exist_ok=True)
 
     ref_id = str(uuid.uuid4())[:8].upper()
     filename = f"audit_report_{ref_id}.pdf"
     filepath = os.path.join(output_dir, filename)
+    # --- PATH FIX ENDS HERE ---
 
     doc = SimpleDocTemplate(
         filepath,
@@ -240,5 +245,7 @@ def generate_audit_pdf(data):
         story.append(HRFlowable(color=BORDER_COLOR))
 
     doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
-    return filename
     
+    # --- RETURN THE URL PATH, NOT THE FILEPATH ---
+    # The frontend appends this to the base URL
+    return f"{os.environ.get('VITE_API_URL', '')}/static/{filename}"

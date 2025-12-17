@@ -8,11 +8,9 @@ from supabase import create_client, Client
 import os
 
 # 1. INITIALIZE SUPABASE CLIENT
-# You must add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to your .env or Render Environment Variables
 supabase_url: str = os.environ.get("SUPABASE_URL")
 supabase_key: str = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 
-# Safety check to prevent crash if keys are missing (logs a warning)
 if not supabase_url or not supabase_key:
     print("⚠️ WARNING: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing. Auth will fail.")
     supabase = None
@@ -31,13 +29,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 3. STATIC FILES SETUP
-static_dir = "app/static"
+# 3. STATIC FILES SETUP (Absolute Path Fix)
+# Get the absolute path to the directory containing this file (app/)
+base_dir = os.path.dirname(os.path.abspath(__file__))
+# Define the static directory path as app/static
+static_dir = os.path.join(base_dir, "static")
+
+# Ensure the directory exists
 os.makedirs(static_dir, exist_ok=True)
+
+# Mount it
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # 4. SECURITY DEPENDENCY
-# This function intercepts every request to check for the Bearer Token
 security = HTTPBearer()
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Security(security)):
@@ -55,12 +59,8 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Security(security))
         raise HTTPException(status_code=401, detail="Invalid Authentication Token")
 
 # 5. PROTECTED ROUTE
-# Added "user = Depends(verify_token)" to lock this route
 @app.post("/api/v1/audit", response_model=AuditResponse)
 async def create_audit(request: AuditRequest, user = Depends(verify_token)):
-    # You can access user.user.id here if you need to log specifically who did what
-    # print(f"Audit requested by: {user.user.id}")
-    
     result = await run_audit_logic(request)
     return result
 
