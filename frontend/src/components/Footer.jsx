@@ -28,8 +28,8 @@ export default function Footer() {
                         <ul className="space-y-4 text-zinc-600 text-sm">
                             <li><Link to="/contact" className="hover:text-white transition-colors">Contact Sales</Link></li>
                             <li><Link to="/contact" className="hover:text-white transition-colors">Security</Link></li>
-                            <li><Link to="/contact" className="hover:text-white transition-colors">Terms of Service</Link></li>
-                            <li><Link to="/contact" className="hover:text-white transition-colors">Privacy Policy</Link></li>
+                            <li><Link to="/privacy" className="hover:text-blue-400 transition-colors">Privacy Policy</Link></li>
+                    <li><Link to="/terms" className="hover:text-blue-400 transition-colors">Terms of Service</Link></li>
                         </ul>
                     </div>
                 </div>

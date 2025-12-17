@@ -1,393 +1,510 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase' // <--- UPDATED
-import { useNavigate } from 'react-router-dom'
-import Auth from './Auth' // This is now a sibling in 'pages'
-import History from '../components/History' // <--- UPDATED
-import TrapBuilder from '../components/TrapBuilder' // <--- UPDATED
+import { supabase } from '../lib/supabase'
 import axios from 'axios'
-import { Shield, Activity, Lock, Server, AlertTriangle, CheckCircle, Search, LogOut, LayoutDashboard, Clock } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { 
+  Shield, Activity, Lock, Server, AlertTriangle, CheckCircle, 
+  Search, LogOut, LayoutDashboard, Clock, Play, Zap, FileText, 
+  Settings as SettingsIcon, Swords, XCircle, Trophy, Globe, AlertOctagon 
+} from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import History from '../components/History'
+import TrapBuilder from '../components/TrapBuilder'
+import Settings from '../components/Settings'
 
-function Dashboard() {
+export default function Dashboard() {
   const [session, setSession] = useState(null)
-  const [view, setView] = useState('dashboard') // 'dashboard' or 'history'
-
-  // --- 1. AUTHENTICATION LOGIC ---
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-    })
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-    })
-
-    return () => subscription.unsubscribe()
-  }, [])
-
-  // --- 2. DASHBOARD STATE ---
+  const [activeTab, setActiveTab] = useState('overview')
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState(null)
-  const [redTeamMode, setRedTeamMode] = useState(false)
-  const [webhook, setWebhook] = useState('')
-
-  // Form Inputs
+  
+  // --- STATE FOR AUDIT FORM ---
   const [apiKey, setApiKey] = useState('')
-  const [provider, setProvider] = useState('gemini/gemini-2.5-flash')
+  const [provider, setProvider] = useState('groq/llama-3.1-8b-instant')
+  
+  // Battle Mode State
+  const [battleMode, setBattleMode] = useState(false) 
+  const [provider2, setProvider2] = useState('gpt-3.5-turbo') 
+
+  const [trap, setTrap] = useState('finance')
+  const [redTeamMode, setRedTeamMode] = useState(false)
+  
+  // Custom Endpoint State
   const [isCustom, setIsCustom] = useState(false)
   const [customUrl, setCustomUrl] = useState('')
   const [customModel, setCustomModel] = useState('')
-  const [trap, setTrap] = useState('finance') // Default to Finance domain
+  
+  const [customTraps, setCustomTraps] = useState([]) 
+  const [webhook, setWebhook] = useState('')
 
-  // NEW: State for Custom Traps
-  const [customTraps, setCustomTraps] = useState([])
+  // --- STATE FOR RESULTS ---
+  const [result, setResult] = useState(null)          
+  const [battleResult, setBattleResult] = useState(null)
+  const [stats, setStats] = useState({ score: 100, scans: 0, risks: 0 })
 
-  // --- 3. AUDIT HANDLER ---
+  // 1. AUTH & PREFS
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+      if (session) {
+        fetchStats(session.user.id)
+        loadPrefs(session.user.id)
+      }
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const loadPrefs = async (userId) => {
+    const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
+    if (data) {
+      if (data.openai_api_key) setApiKey(data.openai_api_key)
+      if (data.groq_api_key && data.preferred_model?.includes('groq')) setApiKey(data.groq_api_key)
+      if (data.preferred_model) setProvider(data.preferred_model)
+      if (data.webhook_url) setWebhook(data.webhook_url)
+    }
+  }
+
+  const fetchStats = async (userId) => {
+    const { count } = await supabase.from('audit_logs').select('*', { count: 'exact', head: true }).eq('user_id', userId)
+    setStats(prev => ({ ...prev, scans: count || 0 }))
+  }
+
+  // 2. AUDIT HANDLER
   const handleAudit = async () => {
     setLoading(true)
     setResult(null)
+    setBattleResult(null)
+
+    const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+    const basePayload = {
+      trap_id: trap,
+      api_key: apiKey,
+      custom_api_base: isCustom ? customUrl : null,
+      custom_model_name: isCustom ? customModel : null,
+      dynamic_traps: customTraps,
+      enable_red_team: redTeamMode,
+      webhook_url: webhook
+    }
 
     try {
-      const response = await axios.post('http://127.0.0.1:8000/api/v1/audit', {
-        trap_id: trap,
-        provider: provider,
-        api_key: apiKey,
-        custom_api_base: isCustom ? customUrl : null,
-        custom_model_name: isCustom ? customModel : null,
-        dynamic_traps: customTraps,
-        // NEW FIELDS
-        enable_red_team: redTeamMode,
-        webhook_url: webhook
-      })
+      if (battleMode) {
+        // --- BATTLE MODE EXECUTION ---
+        const [res1, res2] = await Promise.all([
+          axios.post(`${API_URL}/api/v1/audit`, { ...basePayload, provider: provider }),
+          axios.post(`${API_URL}/api/v1/audit`, { ...basePayload, provider: provider2 })
+        ])
 
-      const auditResult = response.data
+        const data1 = res1.data
+        const data2 = res2.data
 
-      // B. Save to Supabase (History)
-      if (session) {
-        const { error } = await supabase.from('audit_logs').insert({
-          user_id: session.user.id,
-          provider: isCustom ? 'Custom' : provider,
-          trap_id: trap,
-          score: auditResult.score,
-          analysis: auditResult.analysis,
-          pdf_url: auditResult.pdf_url
+        setBattleResult({ 
+          modelA: { name: provider, data: data1 },
+          modelB: { name: provider2, data: data2 }
         })
-        if (error) console.error("Failed to save log:", error)
-      }
+        
+        if (session) {
+          await Promise.all([
+             supabase.from('audit_logs').insert({ user_id: session.user.id, provider: provider, trap_id: trap, score: data1.score, analysis: "Battle Mode (A)", pdf_url: data1.pdf_url }),
+             supabase.from('audit_logs').insert({ user_id: session.user.id, provider: provider2, trap_id: trap, score: data2.score, analysis: "Battle Mode (B)", pdf_url: data2.pdf_url })
+          ])
+        }
+        setStats(prev => ({ ...prev, scans: prev.scans + 2 }))
 
-      // C. Show Result with Animation Delay
-      setTimeout(() => {
+      } else {
+        // --- STANDARD MODE EXECUTION ---
+        const response = await axios.post(`${API_URL}/api/v1/audit`, { ...basePayload, provider: provider })
+        const auditResult = response.data
         setResult(auditResult)
-        setLoading(false)
-      }, 1500)
-
+        
+        if (session) {
+          await supabase.from('audit_logs').insert({
+            user_id: session.user.id, provider: isCustom ? 'Custom' : provider, trap_id: trap,
+            score: auditResult.score, analysis: auditResult.analysis, pdf_url: auditResult.pdf_url
+          })
+        }
+        setStats(prev => ({ ...prev, scans: prev.scans + 1, score: auditResult.score, risks: auditResult.score < 80 ? prev.risks + 1 : prev.risks }))
+      }
     } catch (error) {
       console.error(error)
-      alert("Backend Error! Is your Uvicorn server running on port 8000?")
+      alert("Audit Failed. Ensure Backend is running.")
+    } finally {
       setLoading(false)
     }
   }
 
-  // --- 4. CONDITIONAL RENDERING ---
-  if (!session) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    )
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
+    window.location.href = '/'
   }
 
-  // If logged in, show App
-  return (
-    <div className="min-h-screen bg-slate-950 p-8 font-sans text-slate-300">
+  if (!session) return <div className="min-h-screen bg-[#09090b] flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-white"></div></div>
 
-      {/* HEADER */}
-      <header className="flex items-center justify-between mb-12 border-b border-slate-800 pb-6">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-blue-600 rounded-lg shadow-lg shadow-blue-900/50">
-            <Shield className="w-8 h-8 text-white" />
+  return (
+    <div className="flex h-screen bg-[#09090b] text-zinc-400 font-sans overflow-hidden">
+      
+      {/* SIDEBAR */}
+      <aside className="w-72 border-r border-white/5 bg-[#0c0c0e] flex flex-col p-6 hidden md:flex">
+        <div className="flex items-center gap-3 mb-10 px-2">
+          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(255,255,255,0.2)]">
+            <Shield className="w-5 h-5 text-black fill-black" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">AuditAI <span className="text-blue-500">Enterprise</span></h1>
-            <p className="text-xs text-slate-500 font-mono uppercase">User: {session.user.email}</p>
+            <span className="text-lg font-bold text-white tracking-tight block leading-none">AuditAI</span>
+            <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Enterprise</span>
           </div>
         </div>
+        
+        <nav className="space-y-1 flex-1">
+          {[
+            { id: 'overview', icon: LayoutDashboard, label: 'Audit Console' },
+            { id: 'history', icon: Clock, label: 'Audit Logs' },
+            { id: 'traps', icon: Lock, label: 'Policy Builder' },
+            { id: 'settings', icon: SettingsIcon, label: 'Settings' }
+          ].map((item) => (
+            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${activeTab === item.id ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:bg-zinc-800/50'}`}>
+              <item.icon className={`w-4 h-4 ${activeTab === item.id ? 'text-blue-400' : 'text-zinc-600'}`} /> {item.label}
+            </button>
+          ))}
+        </nav>
+        <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-2 text-zinc-500 hover:text-red-400 text-xs font-bold uppercase tracking-wider group w-full"><LogOut className="w-3 h-3 group-hover:-translate-x-1 transition-transform" /> Sign Out</button>
+      </aside>
 
-        {/* Navigation & Logout */}
-        <div className="flex gap-4">
-          <button
-            onClick={() => setView('dashboard')}
-            className={`px-4 py-2 text-sm font-medium border rounded-md transition-all flex items-center gap-2 ${view === 'dashboard' ? 'bg-blue-900/20 text-blue-400 border-blue-900' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'}`}
-          >
-            <LayoutDashboard className="w-4 h-4" /> Audit
-          </button>
-          <button
-            onClick={() => setView('history')}
-            className={`px-4 py-2 text-sm font-medium border rounded-md transition-all flex items-center gap-2 ${view === 'history' ? 'bg-blue-900/20 text-blue-400 border-blue-900' : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'}`}
-          >
-            <Clock className="w-4 h-4" /> History
-          </button>
-
-          <div className="w-px h-8 bg-slate-800 mx-2"></div>
-
-          <button
-            onClick={() => supabase.auth.signOut()}
-            className="px-4 py-2 text-sm font-medium bg-slate-900 border border-slate-800 rounded-md hover:bg-red-900/20 hover:text-red-400 hover:border-red-900 transition-all flex items-center gap-2"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-      </header>
-
-      {/* MAIN CONTENT AREA */}
-      <main className="max-w-6xl mx-auto">
-
-        {/* VIEW 1: HISTORY TABLE */}
-        {view === 'history' && <History session={session} />}
-
-        {/* VIEW 2: AUDIT DASHBOARD */}
-        {view === 'dashboard' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-
-            {/* LEFT COLUMN: CONTROLS */}
-            <div className="lg:col-span-4 space-y-6">
-
-              {/* CONFIG CARD */}
-              <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 backdrop-blur-sm">
-                <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <Server className="w-4 h-4" /> Configuration
-                </h2>
-
-                <div className="space-y-4">
-                  {/* Custom Toggle */}
-                  <div className="flex items-center justify-between bg-slate-950 p-1 rounded-lg border border-slate-800 mb-4">
-                    <button
-                      onClick={() => setIsCustom(false)}
-                      className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${!isCustom ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
-                    >
-                      Standard Cloud
-                    </button>
-                    <button
-                      onClick={() => setIsCustom(true)}
-                      className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${isCustom ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
-                    >
-                      Custom / Local
-                    </button>
-                  </div>
-
-                  {/* Provider Inputs */}
-                  {!isCustom ? (
+      {/* MAIN CONTENT */}
+      <main className="flex-1 relative overflow-y-auto bg-[#09090b] p-8">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff05_1px,transparent_1px),linear-gradient(to_bottom,#ffffff05_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none z-0"></div>
+        
+        <div className="relative z-10 max-w-7xl mx-auto min-h-screen">
+        
+          {/* TAB: OVERVIEW */}
+          {activeTab === 'overview' && (
+            <div className="space-y-8 pb-20">
+              
+              {/* HEADER & STATS */}
+              <div className="flex flex-col gap-8">
+                  <div className="flex justify-between items-end border-b border-white/5 pb-6">
                     <div>
-                      <label className="block text-xs font-medium mb-1.5">Target Provider</label>
-                      <select
-                        value={provider}
-                        onChange={(e) => setProvider(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                      >
-                        <option value="gemini/gemini-2.5-flash">Google Gemini 2.5 Flash</option>
-                        <option value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</option>
-                        <option value="claude-3-sonnet">Anthropic Claude 3</option>
-                      </select>
-                    </div>
-                  ) : (
-                    <div className="space-y-3 p-3 bg-purple-900/10 border border-purple-500/20 rounded-lg">
-                      <div>
-                        <label className="block text-xs font-medium mb-1 text-purple-300">Base URL</label>
-                        <input
-                          placeholder="https://api.internal-server.com/v1"
-                          value={customUrl}
-                          onChange={(e) => setCustomUrl(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium mb-1 text-purple-300">Model Name</label>
-                        <input
-                          placeholder="my-fin-model-v1"
-                          value={customModel}
-                          onChange={(e) => setCustomModel(e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-700 rounded px-3 py-2 text-sm"
-                        />
+                      <h1 className="text-3xl font-bold text-white mb-2">Security Control Center</h1>
+                      <div className="flex items-center gap-2 text-sm text-zinc-500">
+                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                        System Operational • v2.4.0-stable
                       </div>
                     </div>
-                  )}
-
-                  {/* API Key */}
-                  <div>
-                    <label className="block text-xs font-medium mb-1.5">API Key</label>
-                    <div className="relative">
-                      <Lock className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
-                      <input
-                        type="password"
-                        placeholder="sk-..."
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                      />
-                    </div>
                   </div>
 
-                  {/* Trap Selection */}
-                  <div className="pt-4 border-t border-slate-800">
-                    <label className="block text-xs font-medium mb-1.5 text-blue-400">Select Audit Domain</label>
-                    <select
-                      value={trap}
-                      onChange={(e) => setTrap(e.target.value)}
-                      className="w-full bg-slate-900 border border-blue-900/30 rounded-lg px-3 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                    >
-                      <option value="finance">Finance & Banking (AML, ECOA)</option>
-                      <option value="hr">HR & Recruiting (Bias, PII)</option>
-                      <option value="cyber">Cybersecurity (Injection, Malware)</option>
-                      <option value="support">Customer Support (Brand Safety)</option>
-                      <option value="custom">Custom Policy Only</option>
-                    </select>
-                  </div>
-
-                  {/* Action Button */}
-                  <button
-                    onClick={handleAudit}
-                    disabled={loading}
-                    className="w-full mt-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold py-3 rounded-lg shadow-lg shadow-blue-900/20 active:scale-95 transition-all flex items-center justify-center gap-2"
-                  >
-                    {loading ? 'Running Audit...' : (
-                      <>
-                        <Activity className="w-4 h-4" /> Run Compliance Check
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* NEW: TRAP BUILDER COMPONENT */}
-              <TrapBuilder session={session} onUpdate={setCustomTraps} />
-
-              {/* RED TEAM TOGGLE */}
-              <div className="flex items-center justify-between bg-slate-950 p-3 rounded-lg border border-red-900/30">
-                <div className="flex flex-col">
-                  <span className="text-sm font-bold text-red-400 flex items-center gap-2">
-                    ⚔️ Red Team Mode
-                  </span>
-                  <span className="text-xs text-slate-500">Auto-generate adversarial attacks</span>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={redTeamMode}
-                    onChange={(e) => setRedTeamMode(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
-                </label>
-              </div>
-
-              {/* WEBHOOK INPUT */}
-              <div>
-                <label className="block text-xs font-medium mb-1.5 text-slate-400">Alert Webhook (Slack/Discord)</label>
-                <input
-                  placeholder="https://hooks.slack.com/..."
-                  value={webhook}
-                  onChange={(e) => setWebhook(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-              </div>
-
-            </div>
-
-            {/* RIGHT COLUMN: RESULTS RADAR */}
-            <div className="lg:col-span-8">
-              <div className="relative h-full min-h-[500px] bg-slate-900/30 border border-slate-800 rounded-xl overflow-hidden backdrop-blur-md flex flex-col items-center justify-center text-center p-8">
-
-                {/* IDLE STATE */}
-                {!loading && !result && (
-                  <div className="text-slate-600">
-                    <Search className="w-16 h-16 mx-auto mb-4 opacity-20" />
-                    <p>System Ready. Initiate audit to begin scanning.</p>
-                  </div>
-                )}
-
-                {/* LOADING STATE */}
-                {loading && (
-                  <div className="absolute inset-0 bg-slate-950/80 z-10 flex flex-col items-center justify-center">
-                    <div className="relative w-64 h-64 border border-blue-500/30 rounded-full flex items-center justify-center overflow-hidden">
-                      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-blue-500/20 to-transparent w-full h-full animate-scan"></div>
-                      <div className="w-56 h-56 border border-blue-500/20 rounded-full"></div>
-                      <div className="w-40 h-40 border border-blue-500/10 rounded-full"></div>
-                    </div>
-                    <p className="mt-6 text-blue-400 font-mono animate-pulse">ESTABLISHING CONNECTION...</p>
-                  </div>
-                )}
-
-                {/* RESULTS STATE */}
-                {!loading && result && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="w-full text-left space-y-4"
-                  >
-                    {/* Score Card */}
-                    <div className={`p-6 rounded-xl border ${result.score >= 80 ? 'bg-green-500/10 border-green-500/50' : 'bg-red-500/10 border-red-500/50'} flex items-center justify-between`}>
-                      <div className="flex items-center gap-4">
-                        <div className={`p-3 rounded-full ${result.score >= 80 ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
-                          {result.score >= 80 ? <CheckCircle className="w-6 h-6" /> : <AlertTriangle className="w-6 h-6" />}
-                        </div>
+                  {/* KPI CARDS */}
+                  <div className="grid md:grid-cols-3 gap-6">
+                    <div className="p-6 rounded-2xl bg-[#0c0c0e] border border-white/5 relative overflow-hidden">
+                      <div className="flex justify-between items-start mb-4">
                         <div>
-                          <h3 className={`text-lg font-bold ${result.score >= 80 ? 'text-green-400' : 'text-red-400'}`}>
-                            {result.score >= 80 ? 'SYSTEM COMPLIANT' : 'CRITICAL RISKS FOUND'}
-                          </h3>
-                          <p className="text-slate-400 text-sm">Overall Domain Score: {result.score}%</p>
+                          <div className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">Compliance Score</div>
+                          <div className="text-4xl font-mono font-bold text-white tracking-tight">{stats.score}<span className="text-lg text-zinc-600">%</span></div>
+                        </div>
+                        <div className={`p-2 rounded-lg ${stats.score >= 80 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                          <Activity className="w-6 h-6" />
                         </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-xs text-slate-500 uppercase">Analysis</span>
-                        <p className="font-medium text-slate-200">{result.analysis}</p>
+                      <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
+                        <motion.div initial={{ width: 0 }} animate={{ width: `${stats.score}%` }} transition={{ duration: 1 }} className={`h-full ${stats.score >= 80 ? 'bg-green-500' : 'bg-red-500'}`} />
                       </div>
                     </div>
-
-                    {/* Detailed Breakdown List */}
-                    <div className="bg-slate-950 rounded-lg border border-slate-800 overflow-hidden">
-                      <div className="px-4 py-3 bg-slate-900 border-b border-slate-800 text-xs font-medium text-slate-400 uppercase">
-                        Test Breakdown
+                    <div className="p-6 rounded-2xl bg-[#0c0c0e] border border-white/5">
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <div className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">Total Audits</div>
+                          <div className="text-4xl font-mono font-bold text-white tracking-tight">{stats.scans}</div>
+                        </div>
+                        <div className="p-2 rounded-lg bg-blue-500/10 text-blue-500">
+                          <Server className="w-6 h-6" />
+                        </div>
                       </div>
-                      <div className="max-h-60 overflow-y-auto divide-y divide-slate-800">
-                        {result.results && result.results.map((item, index) => (
-                          <div key={index} className="p-4 hover:bg-slate-900/50 transition-colors">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-semibold text-slate-200">{item.category}</span>
-                              <span className={`text-xs px-2 py-1 rounded font-bold ${item.status === 'PASS' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
-                                {item.status}
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-500 mb-1">{item.question}</p>
-                            <p className="text-xs text-slate-400 font-mono pl-2 border-l-2 border-slate-700 truncate">
-                              "{item.ai_response}"
-                            </p>
+                      <div className="text-xs text-zinc-500">Lifetime system scans</div>
+                    </div>
+                    <div className="p-6 rounded-2xl bg-[#0c0c0e] border border-white/5">
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <div className="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">Active Threats</div>
+                          <div className="text-4xl font-mono font-bold text-white tracking-tight">{stats.risks}</div>
+                        </div>
+                        <div className="p-2 rounded-lg bg-yellow-500/10 text-yellow-500">
+                          <AlertOctagon className="w-6 h-6" />
+                        </div>
+                      </div>
+                      <div className="text-xs text-zinc-500">Requiring immediate mitigation</div>
+                    </div>
+                  </div>
+              </div>
+
+              {/* MAIN DASHBOARD GRID */}
+              <div className="grid lg:grid-cols-12 gap-8">
+                
+                {/* --- LEFT: CONFIGURATION --- */}
+                <div className="lg:col-span-4 space-y-6">
+                  <div className="rounded-3xl bg-[#0c0c0e] border border-white/5 overflow-hidden sticky top-6">
+                    <div className="p-6 border-b border-white/5 bg-white/[0.02]">
+                      <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                        <Zap className="w-5 h-5 text-zinc-500" /> Audit Configuration
+                      </h2>
+                    </div>
+
+                    <div className="p-6 space-y-5">
+                      
+                      {/* TOGGLE: PUBLIC vs CUSTOM */}
+                      <div className="flex bg-black rounded-lg p-1 border border-zinc-800">
+                        <button 
+                          onClick={() => setIsCustom(false)} 
+                          className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${!isCustom ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                        >
+                          Public Cloud
+                        </button>
+                        <button 
+                          onClick={() => setIsCustom(true)} 
+                          className={`flex-1 py-2 text-xs font-bold rounded-md transition-all ${isCustom ? 'bg-zinc-800 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+                        >
+                          Custom Endpoint
+                        </button>
+                      </div>
+
+                      {/* PRIMARY MODEL SELECTION */}
+                      {!isCustom ? (
+                          <div className="space-y-2">
+                             <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
+                                {battleMode ? 'Target Model (A)' : 'Target Model'}
+                             </label>
+                             <div className="relative">
+                                <Globe className="absolute left-3 top-3 w-4 h-4 text-zinc-600" />
+                                <select value={provider} onChange={(e) => setProvider(e.target.value)} className="w-full bg-black border border-zinc-800 rounded-xl pl-10 pr-4 py-3 text-white text-sm outline-none focus:border-blue-500 appearance-none">
+                                  <option value="groq/llama-3.1-8b-instant">Groq Llama 3.1 (Free)</option>
+                                  <option value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</option>
+                                  <option value="gemini/gemini-2.5-flash">Google Gemini 2.5 Flash</option>
+                                  <option value="claude-3-sonnet">Anthropic Claude 3</option>
+                                </select>
+                             </div>
                           </div>
-                        ))}
+                        ) : (
+                          <div className="space-y-4 p-4 bg-zinc-900/30 rounded-xl border border-dashed border-zinc-800">
+                             <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-zinc-500 uppercase">Endpoint URL</label>
+                                <input placeholder="e.g. http://localhost:11434" value={customUrl} onChange={(e) => setCustomUrl(e.target.value)} className="w-full bg-black border border-zinc-800 rounded-lg px-3 py-2 text-white text-sm" />
+                             </div>
+                             <div className="space-y-1">
+                                <label className="text-[10px] font-bold text-zinc-500 uppercase">Model Name</label>
+                                <input placeholder="e.g. llama3" value={customModel} onChange={(e) => setCustomModel(e.target.value)} className="w-full bg-black border border-zinc-800 rounded-lg px-3 py-2 text-white text-sm" />
+                             </div>
+                          </div>
+                        )}
+
+                      {/* BATTLE MODE CHECKBOX */}
+                      <div className="flex items-center gap-3 py-1">
+                        <button 
+                          onClick={() => setBattleMode(!battleMode)}
+                          className={`w-5 h-5 rounded flex items-center justify-center border transition-all ${battleMode ? 'bg-purple-600 border-purple-500 text-white' : 'bg-transparent border-zinc-700'}`}
+                        >
+                          {battleMode && <CheckCircle className="w-3.5 h-3.5" />}
+                        </button>
+                        <span className={`text-xs font-medium cursor-pointer select-none ${battleMode ? 'text-purple-400' : 'text-zinc-500'}`} onClick={() => setBattleMode(!battleMode)}>
+                           Compare with another model (Battle Mode)
+                        </span>
+                      </div>
+
+                      {/* CHALLENGER MODEL (Appears only if checked) */}
+                      <AnimatePresence>
+                        {battleMode && (
+                          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="space-y-2 overflow-hidden pl-4 border-l-2 border-purple-500/30">
+                            <label className="text-xs font-bold text-zinc-500 uppercase">Challenger Model</label>
+                            <select value={provider2} onChange={(e) => setProvider2(e.target.value)} className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-purple-500 appearance-none shadow-[0_0_15px_rgba(168,85,247,0.1)]">
+                              <option value="gpt-3.5-turbo">OpenAI GPT-3.5 Turbo</option>
+                              <option value="groq/llama-3.1-8b-instant">Groq Llama 3.1</option>
+                              <option value="gemini/gemini-2.5-flash">Google Gemini 2.5 Flash</option>
+                            </select>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {/* API KEY */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">API Key</label>
+                        <input type="password" placeholder="sk-..." value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-blue-500 font-mono" />
+                      </div>
+
+                      {/* TEST SUITE */}
+                      <div className="space-y-2">
+                          <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Test Suite</label>
+                          <select value={trap} onChange={(e) => setTrap(e.target.value)} className="w-full bg-black border border-zinc-800 rounded-xl px-2 py-3 text-white text-sm outline-none">
+                             <option value="finance">Finance (AML & Fraud)</option>
+                             <option value="hr">HR (Bias & Ethics)</option>
+                             <option value="cyber">Cybersecurity (Injection)</option>
+                             <option value="custom">Custom Policy</option>
+                          </select>
+                      </div>
+
+                      {/* RED TEAM TOGGLE */}
+                      <div className="pt-2 border-t border-white/5">
+                        <div className="flex items-center justify-between mb-4">
+                           <div>
+                              <div className="text-sm text-white font-medium flex items-center gap-2">Red Team Mode</div>
+                              <div className="text-xs text-zinc-500">Inject adversarial prompts</div>
+                           </div>
+                           <button onClick={() => setRedTeamMode(!redTeamMode)} className={`w-12 h-6 rounded-full p-1 transition-colors ${redTeamMode ? 'bg-red-600' : 'bg-zinc-800'}`}>
+                              <div className={`w-4 h-4 bg-white rounded-full transition-transform ${redTeamMode ? 'translate-x-6' : ''}`} />
+                           </button>
+                        </div>
+
+                        {/* START BUTTON */}
+                        <button onClick={handleAudit} disabled={loading} className={`w-full py-4 font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100 ${battleMode ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white' : 'bg-white text-black hover:bg-zinc-200'}`}>
+                           {loading ? <span className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent"/> : (battleMode ? <><Swords className="w-4 h-4" /> Start Comparison</> : <><Play className="w-4 h-4" /> Run Scan</>)}
+                        </button>
                       </div>
                     </div>
+                  </div>
+                </div>
 
-                    {/* Download Button */}
-                    {result.pdf_url && (
-                      <button
-                        onClick={() => window.open(result.pdf_url, '_blank')}
-                        className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-                      >
-                        <Shield className="w-4 h-4" /> Download Official Domain Report
-                      </button>
+                {/* --- RIGHT: RESULTS AREA --- */}
+                <div className="lg:col-span-8">
+                  <div className="h-full min-h-[600px] bg-[#0c0c0e] border border-white/5 rounded-3xl overflow-hidden flex flex-col relative">
+                    
+                    {/* IDLE STATE */}
+                    {!loading && !result && !battleResult && (
+                      <div className="flex-1 flex flex-col items-center justify-center text-zinc-600 p-8 text-center">
+                         <div className="w-20 h-20 rounded-2xl bg-zinc-900 border border-white/5 flex items-center justify-center mb-6 shadow-xl rotate-3">
+                            {battleMode ? <Swords className="w-8 h-8 opacity-40" /> : <Search className="w-8 h-8 opacity-40" />}
+                         </div>
+                         <h3 className="text-xl font-bold text-white mb-2">{battleMode ? 'Ready to Compare' : 'Awaiting Commands'}</h3>
+                         <p className="text-sm max-w-sm">
+                           {battleMode ? 'Select two models to compare their safety responses side-by-side.' : 'Select a model and test suite to begin the audit.'}
+                         </p>
+                      </div>
                     )}
 
-                  </motion.div>
-                )}
+                    {/* LOADING STATE */}
+                    <AnimatePresence>
+                      {loading && (
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0c0c0e]/95 backdrop-blur-sm">
+                           <div className="relative w-24 h-24 mb-6">
+                              <div className="absolute inset-0 border-4 border-zinc-800 rounded-full"></div>
+                              <div className={`absolute inset-0 border-t-4 rounded-full animate-spin ${battleMode ? 'border-purple-500' : 'border-blue-500'}`}></div>
+                           </div>
+                           <p className={`${battleMode ? 'text-purple-400' : 'text-blue-400'} font-mono tracking-[0.2em] text-xs animate-pulse`}>
+                             {battleMode ? 'RUNNING DUAL SIMULATION...' : 'EXECUTING ATTACK VECTORS...'}
+                           </p>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
+                    {/* --- BATTLE RESULTS --- */}
+                    {!loading && battleResult && (
+                      <div className="flex-1 flex flex-col">
+                        <div className="flex border-b border-white/5 bg-zinc-900/30">
+                           {/* MODEL A */}
+                           <div className={`flex-1 p-6 border-r border-white/5 flex flex-col items-center justify-center relative overflow-hidden ${battleResult.modelA.data.score > battleResult.modelB.data.score ? 'bg-green-500/5' : ''}`}>
+                              <div className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-1">Target Model</div>
+                              <div className="text-lg font-bold text-white truncate max-w-[150px]">{battleResult.modelA.name.split('/')[1] || battleResult.modelA.name}</div>
+                              <div className={`mt-2 text-3xl font-mono font-bold ${battleResult.modelA.data.score >= 80 ? 'text-green-500' : 'text-red-500'}`}>
+                                 {battleResult.modelA.data.score}%
+                              </div>
+                              {battleResult.modelA.data.score > battleResult.modelB.data.score && <Trophy className="absolute top-4 right-4 w-6 h-6 text-yellow-500" />}
+                           </div>
+
+                           <div className="w-12 flex items-center justify-center bg-[#0c0c0e] border-x border-white/5 z-10">
+                              <span className="text-zinc-600 font-black italic text-xl">VS</span>
+                           </div>
+
+                           {/* MODEL B */}
+                           <div className={`flex-1 p-6 border-l border-white/5 flex flex-col items-center justify-center relative overflow-hidden ${battleResult.modelB.data.score > battleResult.modelA.data.score ? 'bg-green-500/5' : ''}`}>
+                              <div className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-1">Challenger</div>
+                              <div className="text-lg font-bold text-white truncate max-w-[150px]">{battleResult.modelB.name.split('/')[1] || battleResult.modelB.name}</div>
+                              <div className={`mt-2 text-3xl font-mono font-bold ${battleResult.modelB.data.score >= 80 ? 'text-green-500' : 'text-red-500'}`}>
+                                 {battleResult.modelB.data.score}%
+                              </div>
+                              {battleResult.modelB.data.score > battleResult.modelA.data.score && <Trophy className="absolute top-4 right-4 w-6 h-6 text-yellow-500" />}
+                           </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto">
+                           <div className="grid grid-cols-2 divide-x divide-white/5">
+                              <div className="divide-y divide-white/5">
+                                 {battleResult.modelA.data.results.map((item, i) => <BattleLogItem key={i} item={item} />)}
+                              </div>
+                              <div className="divide-y divide-white/5">
+                                 {battleResult.modelB.data.results.map((item, i) => <BattleLogItem key={i} item={item} />)}
+                              </div>
+                           </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* --- STANDARD RESULTS --- */}
+                    {!loading && result && !battleMode && (
+                       <div className="flex flex-col h-full">
+                          <div className={`p-8 border-b ${result.score >= 80 ? 'bg-green-500/5 border-green-500/10' : 'bg-red-500/5 border-red-500/10'}`}>
+                             <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-5">
+                                   <div className={`w-16 h-16 rounded-2xl flex items-center justify-center border ${result.score >= 80 ? 'bg-green-500 text-black border-green-400' : 'bg-red-500 text-white border-red-400'}`}>
+                                      {result.score >= 80 ? <CheckCircle className="w-8 h-8"/> : <AlertTriangle className="w-8 h-8"/>}
+                                   </div>
+                                   <div>
+                                      <h3 className="text-2xl font-bold text-white tracking-tight">{result.score >= 80 ? 'System Compliant' : 'Security Critical'}</h3>
+                                      <p className="text-zinc-400 font-mono text-sm mt-1">{result.score}/100 Score • {result.analysis.split('.')[0]}</p>
+                                   </div>
+                                </div>
+                                {result.pdf_url && (
+                                  <button onClick={() => window.open(result.pdf_url, '_blank')} className="px-5 py-2.5 bg-white text-black text-sm font-bold rounded-xl hover:bg-zinc-200 transition-colors flex items-center gap-2 shadow-lg shadow-white/5">
+                                     <FileText className="w-4 h-4" /> Export PDF
+                                  </button>
+                                )}
+                             </div>
+                          </div>
+                          <div className="flex-1 overflow-y-auto divide-y divide-white/5">
+                             {result.results.map((item, i) => (
+                               <div key={i} className="p-6 hover:bg-white/[0.02] transition-colors">
+                                  <div className="flex justify-between items-start mb-3">
+                                     <div className="flex items-center gap-3">
+                                        <span className={`w-2 h-2 rounded-full ${item.status === 'PASS' ? 'bg-green-500 shadow-[0_0_8px_#22c55e]' : 'bg-red-500 shadow-[0_0_8px_#ef4444]'}`}></span>
+                                        <span className="text-sm font-bold text-white">{item.category}</span>
+                                     </div>
+                                     <span className={`text-[10px] font-bold px-2 py-1 rounded border ${item.status === 'PASS' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>{item.status}</span>
+                                  </div>
+                                  <div className="space-y-3 pl-5 border-l-2 border-zinc-800 ml-1">
+                                    <div>
+                                      <p className="text-[10px] text-zinc-500 uppercase font-bold mb-1">Prompt</p>
+                                      <p className="text-sm text-zinc-300">{item.question}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[10px] text-zinc-500 uppercase font-bold mb-1">Response</p>
+                                      <div className="bg-black/50 p-3 rounded-lg border border-white/5 text-xs text-zinc-400 font-mono leading-relaxed">{item.ai_response}</div>
+                                    </div>
+                                  </div>
+                               </div>
+                             ))}
+                          </div>
+                       </div>
+                    )}
+
+                  </div>
+                </div>
               </div>
+
             </div>
-          </div>
-        )}
+          )}
+
+          {activeTab === 'history' && <History session={session} />}
+          {activeTab === 'traps' && <TrapBuilder session={session} onUpdate={setCustomTraps} />}
+          {activeTab === 'settings' && <Settings session={session} />}
+
+        </div>
       </main>
     </div>
   )
 }
 
-export default Dashboard
+function BattleLogItem({ item }) {
+  return (
+    <div className={`p-4 border-b border-white/5 ${item.status === 'PASS' ? 'bg-green-500/[0.02]' : 'bg-red-500/[0.02]'}`}>
+       <div className="flex justify-between items-center mb-2">
+          <span className="text-[10px] font-bold text-zinc-500 truncate max-w-[120px]" title={item.category}>{item.category}</span>
+          {item.status === 'PASS' ? <CheckCircle className="w-3 h-3 text-green-500" /> : <XCircle className="w-3 h-3 text-red-500" />}
+       </div>
+       <div className="text-[10px] text-zinc-400 font-mono line-clamp-3 bg-black/30 p-2 rounded">{item.ai_response}</div>
+    </div>
+  )
+}

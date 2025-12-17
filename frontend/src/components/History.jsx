@@ -1,135 +1,302 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase' // <--- UPDATED
-import { CheckCircle, AlertTriangle, FileText, Calendar, TrendingUp } from 'lucide-react'
-import ComplianceChart from './ComplianceChart' // Sibling, so ./ is correct
+import { supabase } from '../lib/supabase'
+import { 
+  FileText, Clock, Shield, CheckCircle, AlertTriangle, 
+  Trash2, Download, RefreshCcw, Activity 
+} from 'lucide-react'
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
+} from 'recharts'
 
 export default function History({ session }) {
-    const [logs, setLogs] = useState([])
-    const [loading, setLoading] = useState(true)
+  const [logs, setLogs] = useState([])
+  const [loading, setLoading] = useState(true)
 
-    useEffect(() => {
-        fetchHistory()
-    }, [])
+  useEffect(() => {
+    if (session) fetchLogs()
+  }, [session])
 
-    const fetchHistory = async () => {
-        try {
-            const { data, error } = await supabase
-                .from('audit_logs')
-                .select('*')
-                .order('created_at', { ascending: false })
-
-            if (error) throw error
-            setLogs(data)
-        } catch (error) {
-            console.error('Error fetching history:', error.message)
-        } finally {
-            setLoading(false)
-        }
+  // --- READ (FETCH) ---
+  const fetchLogs = async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false })
+      
+      if (error) throw error
+      if (data) setLogs(data)
+    } catch (err) {
+      console.error("Error fetching logs:", err)
+    } finally {
+      setLoading(false)
     }
+  }
 
-    if (loading) return <div className="text-center p-12 text-slate-500 animate-pulse">Loading Analytics...</div>
+  // --- DELETE (SINGLE) ---
+  const handleDelete = async (id) => {
+    if (!confirm("Are you sure? This action cannot be undone.")) return
 
-    // Calculate Average Score
-    const averageScore = logs.length > 0
-        ? Math.round(logs.reduce((acc, curr) => acc + curr.score, 0) / logs.length)
-        : 0
+    const { error } = await supabase
+      .from('audit_logs')
+      .delete()
+      .eq('id', id)
 
-    return (
-        <div className="space-y-8 animate-in fade-in duration-500">
+    if (!error) {
+      setLogs(logs.filter(log => log.id !== id))
+    }
+  }
 
-            {/* 1. Header & Quick Stats */}
-            <div className="flex items-end justify-between">
-                <div>
-                    <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                        <TrendingUp className="w-6 h-6 text-blue-500" /> Analytics Suite
-                    </h2>
-                    <p className="text-slate-400 text-sm mt-1">Real-time monitoring of AI compliance posture.</p>
-                </div>
+  // --- EXPORT (CSV) ---
+  const handleExport = () => {
+    if (logs.length === 0) return
+    
+    // Safety check for null values
+    const safeString = (val) => val ? String(val).replace(/"/g, '""') : ''
 
-                <div className="flex gap-4">
-                    <div className="text-right">
-                        <p className="text-xs text-slate-500 uppercase">Total Audits</p>
-                        <p className="text-2xl font-bold text-white">{logs.length}</p>
-                    </div>
-                    <div className="w-px h-10 bg-slate-800"></div>
-                    <div className="text-right">
-                        <p className="text-xs text-slate-500 uppercase">Avg Score</p>
-                        <p className={`text-2xl font-bold ${averageScore >= 80 ? 'text-green-400' : 'text-yellow-400'}`}>
-                            {averageScore}%
-                        </p>
-                    </div>
-                </div>
-            </div>
+    const headers = ["ID", "Date", "Provider", "Trap Suite", "Score", "Status", "Analysis"]
+    const csvContent = [
+      headers.join(","),
+      ...logs.map(log => [
+        log.id,
+        new Date(log.created_at || new Date()).toISOString(),
+        safeString(log.provider),
+        safeString(log.trap_id),
+        log.score || 0,
+        (log.score || 0) >= 80 ? "PASS" : "FAIL",
+        `"${safeString(log.analysis)}"`
+      ].join(","))
+    ].join("\n")
 
-            {/* 2. THE NEW CHART */}
-            <ComplianceChart logs={logs} />
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement("a")
+    const url = URL.createObjectURL(blob)
+    link.setAttribute("href", url)
+    link.setAttribute("download", `audit_report_${new Date().toISOString().slice(0,10)}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
 
-            {/* 3. The Data Table */}
-            <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-slate-400 uppercase pl-2">Detailed Logs</h3>
+  // --- FORMATTING HELPERS ---
+  const formatDate = (dateString) => {
+    try {
+      if (!dateString) return '---'
+      return new Date(dateString).toLocaleDateString('en-US', {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+      })
+    } catch (e) {
+      return 'Invalid Date'
+    }
+  }
 
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden backdrop-blur-sm">
-                    <table className="w-full text-left text-sm text-slate-400">
-                        <thead className="bg-slate-950 text-slate-200 uppercase font-medium text-xs">
-                            <tr>
-                                <th className="px-6 py-4">Status</th>
-                                <th className="px-6 py-4">Domain</th>
-                                <th className="px-6 py-4">Score</th>
-                                <th className="px-6 py-4">Date</th>
-                                <th className="px-6 py-4 text-right">Report</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800">
-                            {logs.map((log) => (
-                                <tr key={log.id} className="hover:bg-slate-800/50 transition-colors">
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            {log.score >= 80 ? (
-                                                <CheckCircle className="w-4 h-4 text-green-500" />
-                                            ) : (
-                                                <AlertTriangle className="w-4 h-4 text-red-500" />
-                                            )}
-                                            <span className={log.score >= 80 ? "text-green-400" : "text-red-400"}>
-                                                {log.score >= 80 ? "Pass" : "Fail"}
-                                            </span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 font-mono text-slate-300 uppercase">{log.trap_id}</td>
-                                    <td className="px-6 py-4">
-                                        <div className="w-24 bg-slate-800 rounded-full h-1.5 mt-1 relative">
-                                            <div
-                                                className={`absolute top-0 left-0 h-1.5 rounded-full ${log.score >= 80 ? 'bg-green-500' : 'bg-red-500'}`}
-                                                style={{ width: `${log.score}%` }}
-                                            ></div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 flex items-center gap-2">
-                                        <Calendar className="w-3 h-3 opacity-50" />
-                                        {new Date(log.created_at).toLocaleDateString()}
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        {log.pdf_url && (
-                                            <button
-                                                onClick={() => window.open(log.pdf_url, '_blank')}
-                                                className="text-blue-400 hover:text-blue-300 hover:underline flex items-center justify-end gap-1 w-full"
-                                            >
-                                                <FileText className="w-3 h-3" /> PDF
-                                            </button>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                            {logs.length === 0 && (
-                                <tr>
-                                    <td colSpan="5" className="px-6 py-12 text-center text-slate-600">
-                                        No audit records found. Run a compliance check to begin.
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+  // --- SAFE GRAPH DATA PREP ---
+  // This prevents crashes if date is missing or score is null
+  const chartData = logs
+    .filter(log => log.created_at && !isNaN(new Date(log.created_at).getTime())) // Remove invalid dates
+    .map(log => ({
+      date: new Date(log.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      score: log.score ?? 0 // Default to 0 if null
+    }))
+    .reverse()
+
+  // --- RENDER STATES ---
+  if (loading && logs.length === 0) return (
+    <div className="flex flex-col items-center justify-center h-64 text-zinc-500 gap-4">
+      <div className="w-8 h-8 border-2 border-zinc-800 border-t-blue-500 rounded-full animate-spin" />
+      <span className="text-xs font-mono uppercase tracking-widest">Syncing Database...</span>
+    </div>
+  )
+
+  if (logs.length === 0) return (
+    <div className="flex flex-col items-center justify-center h-96 text-zinc-600 border border-dashed border-zinc-800 rounded-3xl bg-[#0c0c0e]">
+      <div className="w-16 h-16 bg-zinc-900 rounded-2xl flex items-center justify-center mb-4 border border-white/5">
+        <Clock className="w-8 h-8 opacity-50" />
+      </div>
+      <p className="text-lg font-bold text-white">No Audit Records</p>
+      <p className="text-sm">Run your first compliance scan to generate logs.</p>
+    </div>
+  )
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      
+      {/* HEADER */}
+      <div className="flex flex-col md:flex-row justify-between items-end border-b border-white/5 pb-6 gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
+            Audit Log Archive
+            <span className="text-xs px-2 py-1 bg-zinc-800 rounded text-zinc-400 font-mono border border-white/5">v2.1</span>
+          </h2>
+          <p className="text-zinc-500 text-sm">Immutable records of all compliance checks performed.</p>
         </div>
-    )
+        <div className="flex gap-2">
+           <button 
+             onClick={fetchLogs} 
+             className="p-2.5 bg-zinc-900 text-zinc-400 hover:text-white rounded-lg border border-white/5 transition-colors"
+             title="Refresh Data"
+           >
+             <RefreshCcw className="w-4 h-4" />
+           </button>
+           <button 
+             onClick={handleExport}
+             className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white text-sm font-bold rounded-lg border border-white/5 transition-colors flex items-center gap-2"
+           >
+             <Download className="w-4 h-4" /> Export CSV
+           </button>
+        </div>
+      </div>
+
+      {/* --- CHART SECTION (Recharts) --- */}
+      <div className="bg-[#0c0c0e] border border-white/5 rounded-3xl p-6 relative overflow-hidden">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+            <Activity className="w-4 h-4 text-blue-500" /> Compliance Trend
+          </h3>
+          <div className="flex gap-2">
+            <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+              <span className="w-2 h-2 rounded-full bg-blue-500"></span> Score
+            </div>
+          </div>
+        </div>
+        
+        <div className="h-[250px] w-full">
+          {chartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="colorScore" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                <XAxis 
+                  dataKey="date" 
+                  stroke="#52525b" 
+                  tick={{fill: '#52525b', fontSize: 10}} 
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis 
+                  stroke="#52525b" 
+                  tick={{fill: '#52525b', fontSize: 10}} 
+                  tickLine={false}
+                  axisLine={false}
+                  domain={[0, 100]}
+                />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '8px', color: '#fff' }}
+                  itemStyle={{ color: '#60a5fa' }}
+                />
+                <Area 
+                  type="monotone" 
+                  dataKey="score" 
+                  stroke="#3b82f6" 
+                  strokeWidth={2}
+                  fillOpacity={1} 
+                  fill="url(#colorScore)" 
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex items-center justify-center text-zinc-600 text-sm">
+              Not enough data to generate trend graph.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* --- DATA TABLE --- */}
+      <div className="bg-[#0c0c0e] border border-white/5 rounded-3xl overflow-hidden shadow-2xl">
+        <div className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-white/5 bg-white/[0.02] text-xs font-bold text-zinc-500 uppercase tracking-wider">
+          <div className="col-span-3">Timestamp / ID</div>
+          <div className="col-span-2">Test Suite</div>
+          <div className="col-span-2">Target Model</div>
+          <div className="col-span-2 text-center">Score</div>
+          <div className="col-span-2">Status</div>
+          <div className="col-span-1 text-right">Actions</div>
+        </div>
+
+        <div className="divide-y divide-white/5">
+          {logs.map((log) => (
+            <div key={log.id} className="grid grid-cols-12 gap-4 px-6 py-4 items-center hover:bg-white/[0.02] transition-colors group">
+              
+              {/* DATE & ID */}
+              <div className="col-span-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-zinc-900 rounded-lg border border-white/5 group-hover:border-blue-500/30 transition-colors">
+                    <FileText className="w-4 h-4 text-zinc-500 group-hover:text-blue-400 transition-colors" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-medium text-white">{formatDate(log.created_at)}</div>
+                    <div className="text-[10px] text-zinc-600 font-mono truncate w-24">
+                       ID: {log.id || '???'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* TRAP */}
+              <div className="col-span-2">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-3 h-3 text-zinc-600" />
+                  <span className="text-sm text-zinc-300 capitalize">{log.trap_id || 'Standard'}</span>
+                </div>
+              </div>
+
+              {/* PROVIDER */}
+              <div className="col-span-2">
+                <div className="text-xs text-zinc-400 truncate font-mono bg-black/50 px-2 py-1 rounded w-fit border border-white/5">
+                  {log.provider || 'Unknown'}
+                </div>
+              </div>
+
+              {/* SCORE */}
+              <div className="col-span-2 text-center">
+                <span className={`text-sm font-bold font-mono ${ (log.score ?? 0) >= 80 ? 'text-green-400' : 'text-red-400'}`}>
+                  {log.score ?? 0}/100
+                </span>
+              </div>
+
+              {/* STATUS */}
+              <div className="col-span-2">
+                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold tracking-wide ${
+                  (log.score ?? 0) >= 80 
+                    ? 'bg-green-500/10 border-green-500/20 text-green-400' 
+                    : 'bg-red-500/10 border-red-500/20 text-red-400'
+                }`}>
+                  {(log.score ?? 0) >= 80 ? <CheckCircle className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                  {(log.score ?? 0) >= 80 ? 'PASSED' : 'FAILED'}
+                </div>
+              </div>
+
+              {/* ACTIONS (CRUD) */}
+              <div className="col-span-1 text-right flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                {log.pdf_url && (
+                  <button 
+                    onClick={() => window.open(log.pdf_url, '_blank')}
+                    className="p-1.5 hover:bg-blue-500/20 text-zinc-500 hover:text-blue-400 rounded-lg transition-colors"
+                    title="Download Report"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+                )}
+                <button 
+                  onClick={() => handleDelete(log.id)}
+                  className="p-1.5 hover:bg-red-500/20 text-zinc-500 hover:text-red-400 rounded-lg transition-colors"
+                  title="Delete Record"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }

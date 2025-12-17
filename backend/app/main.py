@@ -7,18 +7,24 @@ import os
 
 app = FastAPI(title="AuditAI Enterprise API")
 
-# Setup CORS (Allow Frontend to talk to Backend)
+# Setup CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, restrict this to your Vercel URL
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Ensure static folder exists for PDFs
-os.makedirs("static", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# --- THE FIX IS HERE ---
+# We must point to "app/static" because that is where pdf_generator.py saves the files.
+static_dir = "app/static" 
+
+# Ensure the directory exists
+os.makedirs(static_dir, exist_ok=True)
+
+# Mount the specific "app/static" folder to the "/static" URL
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 @app.post("/api/v1/audit", response_model=AuditResponse)
 async def create_audit(request: AuditRequest):

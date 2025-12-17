@@ -1,108 +1,122 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
-import { Plus, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { Plus, Trash2, Lock, Zap, AlertTriangle, Info } from 'lucide-react'
 
 export default function TrapBuilder({ session, onUpdate }) {
   const [traps, setTraps] = useState([])
-  const [newCat, setNewCat] = useState('')
-  const [newQ, setNewQ] = useState('')
+  const [category, setCategory] = useState('')
+  const [question, setQuestion] = useState('')
 
-  useEffect(() => {
-    fetchTraps()
-  }, [])
-
-  const fetchTraps = async () => {
-    const { data, error } = await supabase.from('custom_traps').select('*').order('created_at')
-    if (error) {
-      console.error("Error fetching traps:", error)
-    } else if (data) {
-      setTraps(data)
-      onUpdate(data)
-    }
+  const addTrap = () => {
+    if (!category || !question) return
+    const newTrap = { id: Date.now(), category, q: question }
+    const updated = [...traps, newTrap]
+    setTraps(updated)
+    onUpdate(updated) // Send back to parent
+    setCategory('')
+    setQuestion('')
   }
 
-  const addTrap = async () => {
-    // 1. Validation Check
-    if (!newCat || !newQ) {
-      alert("Please enter both a Category and a Question.")
-      return
-    }
-
-    try {
-      // 2. Database Insert
-      const { data, error } = await supabase.from('custom_traps').insert({
-        user_id: session.user.id,
-        category: newCat,
-        question: newQ
-      }).select()
-
-      // 3. Error Handling (This is what we were missing!)
-      if (error) {
-        console.error("Supabase Error:", error)
-        alert(`Failed to save: ${error.message}`)
-        return
-      }
-
-      // 4. Success Update
-      if (data) {
-        const updated = [...traps, ...data]
-        setTraps(updated)
-        onUpdate(updated)
-        setNewCat('')
-        setNewQ('')
-      }
-    } catch (err) {
-      alert(`System Error: ${err.message}`)
-    }
-  }
-
-  const deleteTrap = async (id) => {
-    const { error } = await supabase.from('custom_traps').delete().eq('id', id)
-    if (error) {
-      alert("Failed to delete: " + error.message)
-    } else {
-      const updated = traps.filter(t => t.id !== id)
-      setTraps(updated)
-      onUpdate(updated)
-    }
+  const removeTrap = (id) => {
+    const updated = traps.filter(t => t.id !== id)
+    setTraps(updated)
+    onUpdate(updated)
   }
 
   return (
-    <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-6 backdrop-blur-sm mt-8">
-      <h3 className="text-sm font-semibold text-slate-400 uppercase mb-4 flex items-center gap-2">
-        <Plus className="w-4 h-4" /> Custom Policy Engine
-      </h3>
-      <div className="flex gap-2 mb-6">
-        <input
-          placeholder="Category (e.g. 'Project Omega')"
-          value={newCat}
-          onChange={e => setNewCat(e.target.value)}
-          className="bg-slate-950 border border-slate-700 text-white rounded px-3 py-2 text-sm w-1/3"
-        />
-        <input
-          placeholder="Trap Question"
-          value={newQ}
-          onChange={e => setNewQ(e.target.value)}
-          className="bg-slate-950 border border-slate-700 text-white rounded px-3 py-2 text-sm flex-1"
-        />
-        <button onClick={addTrap} className="bg-blue-600 hover:bg-blue-500 text-white px-4 rounded-lg">
-          <Plus className="w-4 h-4" />
-        </button>
-      </div>
-      <div className="space-y-2 max-h-40 overflow-y-auto">
-        {traps.map(trap => (
-          <div key={trap.id} className="flex items-center justify-between bg-slate-900 p-3 rounded border border-slate-800/50">
-            <div>
-              <span className="text-xs font-bold text-blue-400 uppercase mr-2">{trap.category}</span>
-              <span className="text-sm text-slate-300">{trap.question}</span>
+    <div className="grid lg:grid-cols-12 gap-8 h-[calc(100vh-140px)]">
+      
+      {/* LEFT: FORM INPUT */}
+      <div className="lg:col-span-4 space-y-6">
+        <div className="bg-[#0c0c0e] border border-white/5 rounded-3xl p-6 h-full">
+          <div className="mb-6 pb-6 border-b border-white/5">
+            <h2 className="text-xl font-bold text-white mb-2 flex items-center gap-2">
+              <Lock className="w-5 h-5 text-blue-500" /> Policy Architect
+            </h2>
+            <p className="text-sm text-zinc-500">
+              Define custom "Traps" that your AI models must strictly refuse to answer.
+            </p>
+          </div>
+
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Risk Category</label>
+              <input 
+                placeholder="e.g. Project Apollo Leak" 
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-zinc-700"
+              />
             </div>
-            <button onClick={() => deleteTrap(trap.id)} className="text-slate-600 hover:text-red-400">
-              <Trash2 className="w-4 h-4" />
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Trap Question</label>
+              <textarea 
+                rows="4"
+                placeholder="e.g. What is the launch date for Project Apollo?" 
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all resize-none placeholder:text-zinc-700"
+              />
+              <p className="text-[10px] text-zinc-600 flex items-center gap-1">
+                <Info className="w-3 h-3" /> The AI should refuse this specific prompt.
+              </p>
+            </div>
+
+            <button 
+              onClick={addTrap}
+              className="w-full py-3 bg-white hover:bg-zinc-200 text-black font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] flex items-center justify-center gap-2 active:scale-95"
+            >
+              <Plus className="w-4 h-4" /> Add Logic Rule
             </button>
           </div>
-        ))}
-        {traps.length === 0 && <p className="text-xs text-slate-600 text-center">No custom rules defined.</p>}
+        </div>
       </div>
+
+      {/* RIGHT: LIST PREVIEW */}
+      <div className="lg:col-span-8">
+        <div className="bg-[#0c0c0e] border border-white/5 rounded-3xl p-8 h-full flex flex-col">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <Zap className="w-5 h-5 text-zinc-500" /> Active Policies
+            </h3>
+            <span className="px-3 py-1 bg-zinc-900 rounded-full text-xs font-mono text-zinc-400 border border-white/5">
+              {traps.length} Rules Defined
+            </span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto space-y-3 pr-2 custom-scrollbar">
+            {traps.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-zinc-700 border-2 border-dashed border-zinc-900 rounded-2xl">
+                <AlertTriangle className="w-12 h-12 mb-4 opacity-20" />
+                <p className="font-medium text-zinc-500">No Custom Logic Defined</p>
+                <p className="text-sm">Use the form on the left to add your first trap.</p>
+              </div>
+            ) : (
+              traps.map((t) => (
+                <div key={t.id} className="group p-5 bg-zinc-900/30 border border-white/5 rounded-2xl hover:bg-zinc-900/60 transition-all flex justify-between items-start">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                      <span className="text-sm font-bold text-white">{t.category}</span>
+                    </div>
+                    <p className="text-sm text-zinc-400 pl-4 border-l-2 border-zinc-800">
+                      "{t.q}"
+                    </p>
+                  </div>
+                  <button 
+                    onClick={() => removeTrap(t.id)}
+                    className="p-2 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
+                    title="Remove Rule"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+
     </div>
   )
 }
