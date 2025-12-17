@@ -7,12 +7,17 @@ import {
   Settings as SettingsIcon, Swords, XCircle, Trophy, Globe, AlertOctagon 
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Navigate } from 'react-router-dom' // <--- ADDED
+import { useAuth } from '../context/AuthContext' // <--- ADDED
+
 import History from '../components/History'
 import TrapBuilder from '../components/TrapBuilder'
 import Settings from '../components/Settings'
 
 export default function Dashboard() {
-  const [session, setSession] = useState(null)
+  // 1. REPLACED MANUAL AUTH WITH CONTEXT
+  const { session, loading: authLoading } = useAuth()
+  
   const [activeTab, setActiveTab] = useState('overview')
   const [loading, setLoading] = useState(false)
   
@@ -40,20 +45,13 @@ export default function Dashboard() {
   const [battleResult, setBattleResult] = useState(null)
   const [stats, setStats] = useState({ score: 100, scans: 0, risks: 0 })
 
-  // 1. AUTH & PREFS
+  // 2. LOAD DATA WHEN SESSION IS READY
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      if (session) {
-        fetchStats(session.user.id)
-        loadPrefs(session.user.id)
-      }
-    })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-    })
-    return () => subscription.unsubscribe()
-  }, [])
+    if (session?.user) {
+      fetchStats(session.user.id)
+      loadPrefs(session.user.id)
+    }
+  }, [session])
 
   const loadPrefs = async (userId) => {
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
@@ -70,13 +68,17 @@ export default function Dashboard() {
     setStats(prev => ({ ...prev, scans: count || 0 }))
   }
 
-  // 2. AUDIT HANDLER
+  // 3. SECURE AUDIT HANDLER
   const handleAudit = async () => {
     setLoading(true)
     setResult(null)
     setBattleResult(null)
 
     const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000'
+    
+    // Get the JWT token from the session to send to Backend
+    const token = session?.access_token 
+
     const basePayload = {
       trap_id: trap,
       api_key: apiKey,
@@ -87,12 +89,19 @@ export default function Dashboard() {
       webhook_url: webhook
     }
 
+    const config = {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}` // <--- CRITICAL SECURITY ADDITION
+      }
+    }
+
     try {
       if (battleMode) {
         // --- BATTLE MODE EXECUTION ---
         const [res1, res2] = await Promise.all([
-          axios.post(`${API_URL}/api/v1/audit`, { ...basePayload, provider: provider }),
-          axios.post(`${API_URL}/api/v1/audit`, { ...basePayload, provider: provider2 })
+          axios.post(`${API_URL}/api/v1/audit`, { ...basePayload, provider: provider }, config),
+          axios.post(`${API_URL}/api/v1/audit`, { ...basePayload, provider: provider2 }, config)
         ])
 
         const data1 = res1.data
@@ -113,7 +122,7 @@ export default function Dashboard() {
 
       } else {
         // --- STANDARD MODE EXECUTION ---
-        const response = await axios.post(`${API_URL}/api/v1/audit`, { ...basePayload, provider: provider })
+        const response = await axios.post(`${API_URL}/api/v1/audit`, { ...basePayload, provider: provider }, config)
         const auditResult = response.data
         setResult(auditResult)
         
@@ -127,7 +136,11 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error(error)
-      alert("Audit Failed. Ensure Backend is running.")
+      if (error.response?.status === 401) {
+        alert("Session expired. Please sign in again.")
+      } else {
+        alert("Audit Failed. Ensure Backend is running.")
+      }
     } finally {
       setLoading(false)
     }
@@ -135,10 +148,17 @@ export default function Dashboard() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    window.location.href = '/'
+    // The AuthContext will automatically update state, redirect handled by router
   }
 
-  if (!session) return <div className="min-h-screen bg-[#09090b] flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-white"></div></div>
+  // 4. LOADING & REDIRECT STATES
+  if (authLoading) return (
+    <div className="min-h-screen bg-[#09090b] flex items-center justify-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-white"></div>
+    </div>
+  )
+
+  if (!session) return <Navigate to="/login" replace />
 
   return (
     <div className="flex h-screen bg-[#09090b] text-zinc-400 font-sans overflow-hidden">
@@ -435,7 +455,7 @@ export default function Dashboard() {
 
                     {/* --- STANDARD RESULTS --- */}
                     {!loading && result && !battleMode && (
-                       <div className="flex flex-col h-full">
+                        <div className="flex flex-col h-full">
                           <div className={`p-8 border-b ${result.score >= 80 ? 'bg-green-500/5 border-green-500/10' : 'bg-red-500/5 border-red-500/10'}`}>
                              <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-5">
@@ -477,7 +497,7 @@ export default function Dashboard() {
                                </div>
                              ))}
                           </div>
-                       </div>
+                        </div>
                     )}
 
                   </div>
