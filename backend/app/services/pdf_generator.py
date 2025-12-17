@@ -72,27 +72,20 @@ def header_footer(canvas, doc):
     canvas.restoreState()
 
 def generate_audit_pdf(data):
-    # --- PATH FIX STARTS HERE ---
-    # Get the absolute path to the 'app' directory
-    # os.path.dirname(os.path.dirname(__file__)) moves up from 'app/services' to 'app'
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    output_dir = os.path.join(base_dir, "static")
+    # --- PATH FIX: Go up from 'services' to 'app', then into 'static' ---
+    current_dir = os.path.dirname(os.path.abspath(__file__)) # .../app/services
+    app_dir = os.path.dirname(current_dir)                   # .../app
+    output_dir = os.path.join(app_dir, "static")             # .../app/static
     
     os.makedirs(output_dir, exist_ok=True)
 
     ref_id = str(uuid.uuid4())[:8].upper()
     filename = f"audit_report_{ref_id}.pdf"
     filepath = os.path.join(output_dir, filename)
-    # --- PATH FIX ENDS HERE ---
 
-    doc = SimpleDocTemplate(
-        filepath,
-        pagesize=A4,
-        rightMargin=1.5*cm, leftMargin=1.5*cm,
-        topMargin=4.2*cm, bottomMargin=2.5*cm 
-    )
+    # --- PDF GENERATION LOGIC ---
+    doc = SimpleDocTemplate(filepath, pagesize=A4, rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=4.2*cm, bottomMargin=2.5*cm)
     doc.ref_id = ref_id
-
     styles = getSampleStyleSheet()
     
     # Custom Styles
@@ -248,4 +241,4 @@ def generate_audit_pdf(data):
     
     # --- RETURN THE URL PATH, NOT THE FILEPATH ---
     # The frontend appends this to the base URL
-    return f"{os.environ.get('VITE_API_URL', '')}{filename}"
+    return f"{os.environ.get('VITE_API_URL', '')}/static/{filename}"
