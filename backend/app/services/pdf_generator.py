@@ -248,4 +248,4 @@ def generate_audit_pdf(data):
     
     # --- RETURN THE URL PATH, NOT THE FILEPATH ---
     # The frontend appends this to the base URL
-    return f"{os.environ.get('VITE_API_URL', '')}/static/{filename}"
+    return f"{os.environ.get('VITE_API_URL', '')}{filename}"
