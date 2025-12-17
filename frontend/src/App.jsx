@@ -1,13 +1,23 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { supabase } from './lib/supabase'
 
-// --- PAGE IMPORTS ---
-import Landing from './pages/Landing'
-import Auth from './pages/Auth'
-import Contact from './pages/Contact'
-import Pricing from './pages/Pricing'
-import Dashboard from './pages/Dashboard' // Ensure your old App.jsx was renamed to this!
+// --- LAZY-LOADED PAGE IMPORTS ---
+// These pages will be loaded on-demand, reducing initial bundle size
+const Landing = lazy(() => import('./pages/Landing'))
+const Auth = lazy(() => import('./pages/Auth'))
+const Contact = lazy(() => import('./pages/Contact'))
+const Pricing = lazy(() => import('./pages/Pricing'))
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+
+// --- LOADING COMPONENT ---
+// Shown while lazy-loaded components are being fetched
+const LoadingSpinner = () => (
+    <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
+    </div>
+)
+
 
 // --- PROTECTED ROUTE COMPONENT ---
 // This acts as a Gatekeeper. If no user is found, it kicks them to /login.
@@ -53,26 +63,28 @@ function ProtectedRoute({ children }) {
 export default function App() {
     return (
         <BrowserRouter>
-            <Routes>
-                {/* PUBLIC ROUTES (Accessible by everyone) */}
-                <Route path="/" element={<Landing />} />
-                <Route path="/contact" element={<Contact />} />
-                <Route path="/pricing" element={<Pricing />} />
-                <Route path="/login" element={<Auth />} />
+            <Suspense fallback={<LoadingSpinner />}>
+                <Routes>
+                    {/* PUBLIC ROUTES (Accessible by everyone) */}
+                    <Route path="/" element={<Landing />} />
+                    <Route path="/contact" element={<Contact />} />
+                    <Route path="/pricing" element={<Pricing />} />
+                    <Route path="/login" element={<Auth />} />
 
-                {/* PRIVATE ROUTES (Requires Login) */}
-                <Route
-                    path="/app/*"
-                    element={
-                        <ProtectedRoute>
-                            <Dashboard />
-                        </ProtectedRoute>
-                    }
-                />
+                    {/* PRIVATE ROUTES (Requires Login) */}
+                    <Route
+                        path="/app/*"
+                        element={
+                            <ProtectedRoute>
+                                <Dashboard />
+                            </ProtectedRoute>
+                        }
+                    />
 
-                {/* CATCH-ALL: Redirect unknown URLs to Home */}
-                <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+                    {/* CATCH-ALL: Redirect unknown URLs to Home */}
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+            </Suspense>
         </BrowserRouter>
     )
 }
