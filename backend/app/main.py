@@ -29,9 +29,11 @@ app.add_middleware(
 )
 
 # 3. STATIC FILES (THE FIX)
-# We are in /app/main.py. We want /app/static.
-current_dir = os.path.dirname(os.path.abspath(__file__)) # .../app
-static_dir = os.path.join(current_dir, "static")         # .../app/static
+current_file_dir = os.path.dirname(os.path.abspath(__file__)) # .../app
+static_dir = os.path.join(current_file_dir, "static")         # .../app/static
+
+# Debug print to Render logs
+print(f"🚀 Main: Serving static files from {static_dir}")
 
 os.makedirs(static_dir, exist_ok=True)
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
