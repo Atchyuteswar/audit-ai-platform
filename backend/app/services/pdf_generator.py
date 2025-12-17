@@ -73,9 +73,11 @@ def header_footer(canvas, doc):
 
 def generate_audit_pdf(data):
     # --- PATH FIX: Go up from 'services' to 'app', then into 'static' ---
-    current_dir = os.path.dirname(os.path.abspath(__file__)) # .../app/services
-    app_dir = os.path.dirname(current_dir)                   # .../app
-    output_dir = os.path.join(app_dir, "static")             # .../app/static
+    current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    app_dir = os.path.dirname(current_script_dir)
+    output_dir = os.path.join(app_dir, "static")
+
+    print(f"📄 PDF Generator: Saving files to {output_dir}")
     
     os.makedirs(output_dir, exist_ok=True)
 
