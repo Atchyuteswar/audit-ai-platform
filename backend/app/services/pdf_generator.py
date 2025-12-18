@@ -1,6 +1,6 @@
 import os
 import uuid
-from pathlib import Path  # <--- NEW: Import Pathlib
+from pathlib import Path
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -34,10 +34,9 @@ class HRFlowable(Flowable):
         return (self.width, self.thickness)
 
     def draw(self):
-        canvas = self.canv
-        canvas.setStrokeColor(self.color)
-        canvas.setLineWidth(self.thickness)
-        canvas.line(0, 0, self.width, 0)
+        self.canv.setStrokeColor(self.color)
+        self.canv.setLineWidth(self.thickness)
+        self.canv.line(0, 0, self.width, 0)
 
 def header_footer(canvas, doc):
     """ Renders the official letterhead and footer """
@@ -73,28 +72,20 @@ def header_footer(canvas, doc):
     canvas.restoreState()
 
 def generate_audit_pdf(data):
-    # --- PATH FIX: Using Pathlib for robustness ---
-    # 1. Start at this file: app/services/pdf_generator.py
-    # 2. .parent = app/services
-    # 3. .parent.parent = app
+    # --- 1. ABSOLUTE PATH FIX (For Saving) ---
+    # This guarantees we find the 'app/static' folder correctly
+    # .parent = app/services, .parent.parent = app
     BASE_DIR = Path(__file__).resolve().parent.parent 
-    
-    # 4. Target folder: app/static
     STATIC_DIR = BASE_DIR / "static"
-
-    # 5. Create directory if missing
     STATIC_DIR.mkdir(parents=True, exist_ok=True)
-    
-    print(f"📄 PDF Generator: Saving files to {STATIC_DIR}")
 
     ref_id = str(uuid.uuid4())[:8].upper()
     filename = f"audit_report_{ref_id}.pdf"
-    
-    # 6. Define full filepath using / operator
     filepath = STATIC_DIR / filename
+    
+    print(f"📄 GENERATING PDF AT: {filepath}")
 
-    # --- PDF GENERATION LOGIC ---
-    # Convert Path object to string for ReportLab
+    # --- PDF CONTENT GENERATION ---
     doc = SimpleDocTemplate(str(filepath), pagesize=A4, rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=4.2*cm, bottomMargin=2.5*cm)
     doc.ref_id = ref_id
     styles = getSampleStyleSheet()
@@ -105,7 +96,7 @@ def generate_audit_pdf(data):
     style_label = ParagraphStyle('Label', parent=styles['Normal'], fontSize=8, textColor=colors.gray, textTransform='uppercase', leading=10)
     style_value = ParagraphStyle('Value', parent=styles['Normal'], fontSize=10, textColor=PRIMARY_COLOR, leading=12, fontName="Helvetica-Bold")
     
-    # Score Styles (Clean Text)
+    # Score Styles
     style_score_num = ParagraphStyle('ScoreNum', parent=styles['Normal'], fontSize=55, fontName="Helvetica-Bold", alignment=1, leading=60)
     style_score_label = ParagraphStyle('ScoreLabel', parent=styles['Normal'], fontSize=11, fontName="Helvetica", alignment=1, textColor=colors.gray, leading=14)
     style_score_status = ParagraphStyle('ScoreStatus', parent=styles['Normal'], fontSize=10, fontName="Helvetica-Bold", alignment=1, spaceBefore=4)
@@ -115,24 +106,9 @@ def generate_audit_pdf(data):
     style_log_verdict = ParagraphStyle('LogVerdict', parent=styles['Normal'], fontSize=9, fontName="Helvetica-Bold", alignment=2) 
     style_prompt_label = ParagraphStyle('PromptLabel', parent=styles['Normal'], fontSize=8, textColor=colors.HexColor("#64748b"), fontName="Helvetica-Bold", spaceBefore=6)
     
-    # Improved Text Wrap Styles
-    style_prompt_text = ParagraphStyle(
-        'Prompt', 
-        parent=styles['Normal'], 
-        fontSize=10, 
-        leading=14, # Better line height
-        textColor=PRIMARY_COLOR,
-        wordWrap='CJK' # Helps with cleaner wrapping
-    )
-    style_response_text = ParagraphStyle(
-        'Response', 
-        parent=styles['Normal'], 
-        fontSize=9, 
-        leading=12, # Tighter leading for code-like text
-        textColor=colors.HexColor("#475569"), 
-        fontName="Courier",
-        wordWrap='CJK' # Helps wrapping long tokens
-    )
+    # Text Wrap Styles
+    style_prompt_text = ParagraphStyle('Prompt', parent=styles['Normal'], fontSize=10, leading=14, textColor=PRIMARY_COLOR, wordWrap='CJK')
+    style_response_text = ParagraphStyle('Response', parent=styles['Normal'], fontSize=9, leading=12, textColor=colors.HexColor("#475569"), fontName="Courier", wordWrap='CJK')
 
     story = []
 
@@ -141,13 +117,12 @@ def generate_audit_pdf(data):
     is_passing = score >= 80
     status_text = "CERTIFIED COMPLIANT" if is_passing else "CRITICAL RISK DETECTED"
     status_color = PASS_COLOR if is_passing else FAIL_COLOR
-    
     score_status_text = "PASSING" if is_passing else "FAILING"
 
     story.append(Paragraph("Executive Security Summary", style_heading))
     story.append(Spacer(1, 10))
 
-    # --- 1. SCORE BLOCK ---
+    # Score Block
     score_content = [
         Spacer(1, 10),
         Paragraph(f"<font color='{status_color.hexval()}'>{int(score)}</font>", style_score_num),
@@ -156,7 +131,7 @@ def generate_audit_pdf(data):
         Spacer(1, 10)
     ]
 
-    # --- 2. DETAILS BLOCK ---
+    # Details Block
     details_data = [
         [Paragraph("Target Model:", style_label), Paragraph(data.get('provider', 'Unknown'), style_value)],
         [Paragraph("Policy Suite:", style_label), Paragraph(data.get('domain', 'General'), style_value)],
@@ -192,20 +167,13 @@ def generate_audit_pdf(data):
     story.append(Paragraph(narrative, style_normal))
 
     story.append(Spacer(1, 20))
-    story.append(Paragraph("Methodology & Transparency", style_heading))
-    legal_text = "This report uses probabilistic testing aligned with OWASP LLM Top 10. Full prompt and response logs are provided below for transparency. A passing score does not guarantee immunity from zero-day attacks."
-    story.append(Paragraph(legal_text, ParagraphStyle('Legal', parent=styles['Normal'], fontSize=8, textColor=colors.gray)))
-    
     story.append(PageBreak())
 
-    # --- PAGE 2+: DETAILED FINDINGS ---
+    # --- PAGE 2+: FINDINGS LOG ---
     story.append(Paragraph("Technical Findings Log", style_heading))
-    story.append(Paragraph("Detailed audit trail of adversarial prompts and system responses.", style_normal))
-    story.append(Spacer(1, 15))
     story.append(HRFlowable(thickness=2, color=PRIMARY_COLOR)) 
 
-    # Loop through results
-    for i, item in enumerate(data.get('results', [])):
+    for item in data.get('results', []):
         story.append(Spacer(1, 15))
         
         verdict = item['status']
@@ -214,34 +182,19 @@ def generate_audit_pdf(data):
         else:
             verdict_html = f"<font color='{FAIL_COLOR.hexval()}'>RISK DETECTED</font>"
 
-        # 1. Meta Data Strip
-        meta_data = [
-            [Paragraph(f"<b>ID:</b> {item['id']}", style_log_meta),
-             Paragraph(f"<b>CATEGORY:</b> {item['category']}", style_log_meta),
-             Paragraph(f"<b>VERDICT:</b> {verdict_html}", style_log_verdict)]
-        ]
-        meta_table = Table(meta_data, colWidths=[4*cm, 9*cm, 5*cm])
-        meta_table.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('LINEBELOW', (0,0), (-1,-1), 0.5, BORDER_COLOR),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-        ]))
+        # Meta Data
+        meta_table = Table([[Paragraph(f"<b>ID:</b> {item['id']}", style_log_meta), Paragraph(f"<b>CATEGORY:</b> {item['category']}", style_log_meta), Paragraph(f"<b>VERDICT:</b> {verdict_html}", style_log_verdict)]], colWidths=[4*cm, 9*cm, 5*cm])
+        meta_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LINEBELOW', (0,0), (-1,-1), 0.5, BORDER_COLOR)]))
         
-        # 2. Content Block
-        content_data = [
-            [Paragraph("ADVERSARIAL PROMPT", style_prompt_label)],
-            [Paragraph(item['question'], style_prompt_text)],
-            [Spacer(1, 6)],
-            [Paragraph("AI RESPONSE", style_prompt_label)],
-            [Paragraph(item['ai_response'], style_response_text)],
-        ]
-        content_table = Table(content_data, colWidths=[17*cm])
-        content_table.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'TOP'),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 0),
-        ]))
-
+        # Q&A Data
+        content_table = Table([
+            [Paragraph("PROMPT", style_prompt_label)], 
+            [Paragraph(item['question'], style_prompt_text)], 
+            [Spacer(1,6)], 
+            [Paragraph("RESPONSE", style_prompt_label)], 
+            [Paragraph(item['ai_response'], style_response_text)]
+        ], colWidths=[17*cm])
+        
         story.append(meta_table)
         story.append(Spacer(1, 5))
         story.append(content_table)
@@ -250,16 +203,12 @@ def generate_audit_pdf(data):
 
     doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
     
-    # --- URL CONSTRUCTION FIX ---
-    # Retrieve base URL and strip ALL trailing slashes or "static" paths to prevent duplication
-    raw_base_url = os.environ.get('VITE_API_URL', '')
+    # --- 2. URL FIX (Critical for Render) ---
+    # Fallback to your hardcoded URL if env var is missing/wrong
+    DEFAULT_URL = "https://audit-ai-platform-backend.onrender.com"
     
-    # Safety: Remove trailing slash
-    clean_base_url = raw_base_url.rstrip('/')
-    
-    # Safety: If user accidentally put ".../static" in their ENV var, remove it.
-    if clean_base_url.endswith('/static'):
-        clean_base_url = clean_base_url[:-7]
+    raw_url = os.environ.get('VITE_API_URL', DEFAULT_URL)
+    # Clean it: Remove trailing slashes and any accidental '/static' suffix
+    clean_url = raw_url.rstrip('/').replace('/static', '')
 
-    # Return the clean, single-slash URL
-    return f"{clean_base_url}/static/{filename}"
+    return f"{clean_url}/static/{filename}"
