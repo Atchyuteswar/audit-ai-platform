@@ -6,6 +6,7 @@ from app.schemas import AuditRequest, AuditResponse
 from app.services.auditor import run_audit_logic
 from supabase import create_client, Client
 import os
+from pathlib import Path  # <--- NEW: Modern Path Handling
 
 # 1. INITIALIZE SUPABASE
 supabase_url: str = os.environ.get("SUPABASE_URL")
@@ -28,15 +29,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 3. STATIC FILES (THE FIX)
-current_file_dir = os.path.dirname(os.path.abspath(__file__)) # .../app
-static_dir = os.path.join(current_file_dir, "static")         # .../app/static
+# 3. STATIC FILES (THE PATHLIB FIX)
+# This logic matches pdf_generator.py exactly.
+# File is in: app/main.py
+# .parent = app/
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 
-# Debug print to Render logs
-print(f"🚀 Main: Serving static files from {static_dir}")
+# Create directory if it doesn't exist
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
-os.makedirs(static_dir, exist_ok=True)
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+print(f"🚀 Main: Serving static files from {STATIC_DIR}")
+
+# Mount absolute path
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # 4. SECURITY
 security = HTTPBearer()

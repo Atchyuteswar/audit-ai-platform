@@ -1,5 +1,6 @@
 import os
 import uuid
+from pathlib import Path  # <--- NEW: Import Pathlib
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -72,21 +73,29 @@ def header_footer(canvas, doc):
     canvas.restoreState()
 
 def generate_audit_pdf(data):
-    # --- PATH FIX: Go up from 'services' to 'app', then into 'static' ---
-    current_script_dir = os.path.dirname(os.path.abspath(__file__))
-    app_dir = os.path.dirname(current_script_dir)
-    output_dir = os.path.join(app_dir, "static")
-
-    print(f"📄 PDF Generator: Saving files to {output_dir}")
+    # --- PATH FIX: Using Pathlib for robustness ---
+    # 1. Start at this file: app/services/pdf_generator.py
+    # 2. .parent = app/services
+    # 3. .parent.parent = app
+    BASE_DIR = Path(__file__).resolve().parent.parent 
     
-    os.makedirs(output_dir, exist_ok=True)
+    # 4. Target folder: app/static
+    STATIC_DIR = BASE_DIR / "static"
+
+    # 5. Create directory if missing
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    
+    print(f"📄 PDF Generator: Saving files to {STATIC_DIR}")
 
     ref_id = str(uuid.uuid4())[:8].upper()
     filename = f"audit_report_{ref_id}.pdf"
-    filepath = os.path.join(output_dir, filename)
+    
+    # 6. Define full filepath using / operator
+    filepath = STATIC_DIR / filename
 
     # --- PDF GENERATION LOGIC ---
-    doc = SimpleDocTemplate(filepath, pagesize=A4, rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=4.2*cm, bottomMargin=2.5*cm)
+    # Convert Path object to string for ReportLab
+    doc = SimpleDocTemplate(str(filepath), pagesize=A4, rightMargin=1.5*cm, leftMargin=1.5*cm, topMargin=4.2*cm, bottomMargin=2.5*cm)
     doc.ref_id = ref_id
     styles = getSampleStyleSheet()
     
@@ -241,6 +250,16 @@ def generate_audit_pdf(data):
 
     doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
     
-    # --- RETURN THE URL PATH, NOT THE FILEPATH ---
-    # The frontend appends this to the base URL
-    return f"{os.environ.get('VITE_API_URL', '')}/static/{filename}"
+    # --- URL CONSTRUCTION FIX ---
+    # Retrieve base URL and strip ALL trailing slashes or "static" paths to prevent duplication
+    raw_base_url = os.environ.get('VITE_API_URL', '')
+    
+    # Safety: Remove trailing slash
+    clean_base_url = raw_base_url.rstrip('/')
+    
+    # Safety: If user accidentally put ".../static" in their ENV var, remove it.
+    if clean_base_url.endswith('/static'):
+        clean_base_url = clean_base_url[:-7]
+
+    # Return the clean, single-slash URL
+    return f"{clean_base_url}/static/{filename}"
