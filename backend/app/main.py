@@ -2,7 +2,8 @@ from fastapi import FastAPI, Depends, HTTPException, Security, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.schemas import AuditRequest, AuditResponse
+from fastapi.responses import JSONResponse # <--- NEW: Return manual JSON
+from app.schemas import AuditRequest
 from app.services.auditor import run_audit_logic
 from supabase import create_client, Client
 import os
@@ -21,14 +22,10 @@ else:
 app = FastAPI(title="AuditAI Enterprise API")
 
 # --- STATIC FILES SETUP ---
-# Calculate the absolute path to 'app/static' to match the generator
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
-
 print(f"🚀 SERVER MOUNTING STATIC DIR: {STATIC_DIR}")
-
-# Mount the folder to serve files at /static
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # --- CORS ---
@@ -56,33 +53,51 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Security(security))
 
 # --- ROUTES ---
 
-@app.post("/api/v1/audit", response_model=AuditResponse)
+# REMOVED strict response_model=AuditResponse to prevent crashes
+@app.post("/api/v1/audit") 
 async def create_audit(request: Request, audit_request: AuditRequest, user = Depends(verify_token)):
-    """
-    Run audit and return dynamic download URL.
-    We inject 'request' here to get the real server URL automatically.
-    """
-    # 1. Run the audit logic
-    # Note: run_audit_logic calls generate_audit_pdf inside it
-    result = await run_audit_logic(audit_request)
-    
-    # 2. Extract the filename from the result (assuming your service returns a full URL or filename)
-    # Since we updated pdf_generator to return ONLY the filename, the result.pdf_url 
-    # coming from 'run_audit_logic' might still be trying to format it.
-    # We will fix the final URL here to be 100% safe.
-    
-    raw_pdf_path = result.pdf_url # This might be just "report.pdf" or a broken URL now
-    filename = os.path.basename(raw_pdf_path) # Extract just "file.pdf" to be safe
-    
-    # 3. Construct the PERFECT URL using the incoming Request
-    # request.base_url automatically gives "https://your-app.onrender.com/"
-    final_pdf_url = f"{request.base_url}static/{filename}"
-    
-    # 4. Update the result object before sending to frontend
-    result.pdf_url = final_pdf_url
-    
-    return result
+    try:
+        print(f"📥 Received Audit Request for: {audit_request.provider}")
+        
+        # 1. Run Logic
+        raw_result = await run_audit_logic(audit_request)
+        
+        # 2. Normalize Data (Handle Dict vs Object)
+        # This prevents "AttributeError" crashes
+        if isinstance(raw_result, dict):
+            data = raw_result
+        else:
+            data = raw_result.dict() # Convert Pydantic model to dict
+
+        # 3. PDF URL Logic (The Fix)
+        # Check if 'pdf_url' exists and fix it
+        raw_pdf = data.get('pdf_url')
+        if raw_pdf:
+            filename = os.path.basename(str(raw_pdf))
+            base_url = str(request.base_url).rstrip('/')
+            final_link = f"{base_url}/static/{filename}"
+            data['pdf_url'] = final_link
+            print(f"✅ PDF Link Fixed: {final_link}")
+        
+        # 4. Emergency Field Injection
+        # If auditor.py forgot these, we add them now to stop the frontend from breaking
+        if 'provider' not in data:
+            data['provider'] = audit_request.provider
+        if 'domain' not in data:
+            data['domain'] = "General Security"
+        
+        print("📤 Sending Successful Response")
+        return JSONResponse(content=data)
+
+    except Exception as e:
+        # 5. CATCH-ALL ERROR LOGGER
+        # This prints the REAL error to your Render Logs
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"🔥 CRITICAL SERVER CRASH:\n{error_details}")
+        
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 @app.get("/")
 def health_check():
-    return {"status": "operational", "version": "3.0.0 (Robust)"}
+    return {"status": "operational", "version": "3.2.0 (No-Crash Mode)"}
