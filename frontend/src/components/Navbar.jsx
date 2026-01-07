@@ -16,7 +16,6 @@ export default function Navbar() {
 
                 {/* Center Links (Desktop) */}
                 <div className="hidden md:flex gap-8 text-sm font-medium text-zinc-500">
-                    <Link to="/" className="hover:text-white transition-colors">Platform</Link>
                     <Link to="/pricing" className="hover:text-white transition-colors">Pricing</Link>
                     <Link to="/contact" className="hover:text-white transition-colors">Enterprise</Link>
                 </div>
