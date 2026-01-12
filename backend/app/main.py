@@ -3,9 +3,11 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse # <--- NEW: Return manual JSON
-from app.schemas import AuditRequest
+from app.schemas import AuditRequest, AuditResponse, ScheduleCreate, ScheduleResponse
 from app.services.auditor import run_audit_logic
 from supabase import create_client, Client
+from datetime import datetime, timedelta
+from pydantic import BaseModel
 import os
 from pathlib import Path
 
@@ -97,6 +99,102 @@ async def create_audit(request: Request, audit_request: AuditRequest, user = Dep
         print(f"🔥 CRITICAL SERVER CRASH:\n{error_details}")
         
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+# --- SCHEDULE ROUTES ---
+
+@app.post("/api/v1/schedules")
+async def create_schedule(schedule: ScheduleCreate, user = Depends(verify_token)):
+    """User creates a new recurring audit"""
+    # Calculate next run (default to running immediately or tomorrow)
+    next_run = datetime.now() + timedelta(days=1)
+    
+    data = {
+        "user_id": user.user.id,
+        "provider": schedule.provider,
+        "test_suite": schedule.test_suite,
+        "frequency": schedule.frequency,
+        "next_run_at": next_run.isoformat()
+    }
+    
+    try:
+        response = supabase.table("audit_schedules").insert(data).execute()
+        return {"status": "success", "data": response.data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/schedules")
+async def list_schedules(user = Depends(verify_token)):
+    """List active schedules for the user"""
+    response = supabase.table("audit_schedules").select("*").eq("user_id", user.user.id).execute()
+    return response.data
+
+# --- THE CRON TRIGGER (The Engine) ---
+# This endpoint will be hit by an external cron service every hour
+@app.get("/api/cron/trigger")
+async def trigger_scheduled_scans():
+    print("⏰ Cron Triggered: Checking for due scans...")
+    
+    # 1. Get all schedules where next_run_at is in the past (Due)
+    now = datetime.now().isoformat()
+    response = supabase.table("audit_schedules").select("*").lte("next_run_at", now).eq("is_active", True).execute()
+    
+    due_jobs = response.data
+    print(f"found {len(due_jobs)} jobs due.")
+
+    results = []
+    
+    for job in due_jobs:
+        print(f"▶️ Running Scheduled Scan: {job['id']} ({job['provider']})")
+        
+        # 2. Construct the Audit Request object from the schedule data
+        # Note: Scheduled scans won't have custom API keys, they use server defaults or stored keys
+        request_data = AuditRequest(
+            trap_id="scheduled",
+            provider=job['provider'],
+            enable_red_team=False, # Keep it light for auto-scans
+            dynamic_traps=[]
+        )
+        
+        # 3. RUN THE AUDIT (Reusing your existing logic!)
+        try:
+            audit_result = await run_audit_logic(request_data)
+            
+            # 4. Calculate NEW next_run_at
+            current_run = datetime.now()
+            if job['frequency'] == 'daily':
+                next_date = current_run + timedelta(days=1)
+            elif job['frequency'] == 'weekly':
+                next_date = current_run + timedelta(weeks=1)
+            else:
+                next_date = current_run + timedelta(days=1)
+                
+            # 5. Update the Schedule DB
+            supabase.table("audit_schedules").update({
+                "last_run_at": current_run.isoformat(),
+                "next_run_at": next_date.isoformat()
+            }).eq("id", job['id']).execute()
+            
+            results.append({"job_id": job['id'], "status": "completed"})
+            
+        except Exception as e:
+            print(f"❌ Job Failed: {e}")
+            results.append({"job_id": job['id'], "status": "failed", "error": str(e)})
+
+    return {"processed": len(results), "details": results}
+
+@app.delete("/api/v1/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: str, user = Depends(verify_token)):
+    """Delete a scheduled audit"""
+    try:
+        # Check if it belongs to user
+        res = supabase.table("audit_schedules").select("*").eq("id", schedule_id).eq("user_id", user.user.id).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+            
+        supabase.table("audit_schedules").delete().eq("id", schedule_id).execute()
+        return {"status": "deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
 def health_check():

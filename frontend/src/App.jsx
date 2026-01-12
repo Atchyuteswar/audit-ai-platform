@@ -10,6 +10,7 @@ const Contact = lazy(() => import('./pages/Contact'))
 const Pricing = lazy(() => import('./pages/Pricing'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const NotFound = lazy(() => import('./pages/NotFound'))
+const Schedules = lazy(() => import('./pages/Schedules'))
 
 // Spinner
 const LoadingSpinner = () => (
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="/login" element={<Auth />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/pricing" element={<Pricing />} />
+            <Route path="/schedules" element={<Schedules />} />
             
             {/* The Callback Route */}
             <Route path="/auth/callback" element={<AuthCallback />} />

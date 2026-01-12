@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 
@@ -38,3 +39,14 @@ class AuditResponse(BaseModel):
     # If they are missing here, Pydantic rejects the whole response.
     provider: str
     domain: Optional[str] = "General"
+
+class ScheduleCreate(BaseModel):
+    provider: str
+    test_suite: str
+    frequency: str # "daily" or "weekly"
+
+class ScheduleResponse(BaseModel):
+    id: str
+    provider: str
+    frequency: str
+    next_run_at: datetime
