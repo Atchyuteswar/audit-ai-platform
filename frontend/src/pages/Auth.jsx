@@ -40,7 +40,9 @@ export default function Auth() {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: 'https://audit.webnovx.com/auth/callback' }
+        // This automatically picks "http://localhost:5173" when local 
+        // and "https://audit.webnovx.com" when live.
+        options: { emailRedirectTo: `${window.location.origin}/auth/callback` }
       })
       if (error) throw error
     } catch (err) {
@@ -50,26 +52,26 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen bg-black text-white selection:bg-white/20 selection:text-white grid lg:grid-cols-2 overflow-hidden">
-      
+
       {/* ================= LEFT COLUMN: FORM ================= */}
       <div className="relative flex items-center justify-center p-8 sm:p-12 lg:p-16 overflow-hidden bg-gradient-to-br from-black via-zinc-950 to-black">
-          
+
         {/* Background Effects (from Landing Theme) */}
         <div className="absolute top-[-20%] left-[-20%] w-[80vw] h-[80vw] bg-gradient-to-r from-gray-800/10 via-gray-700/12 to-gray-900/10 rounded-full blur-[120px] pointer-events-none" />
         <div className="fixed inset-0 bg-[linear-gradient(to_right,#ffffff08_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)] bg-[size:24px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none z-0" />
 
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, type: "spring" }}
           className="w-full max-w-md relative z-10"
         >
-           <div className="bg-white/5 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
-            
+          <div className="bg-white/5 backdrop-blur-xl border border-white/20 rounded-3xl p-8 shadow-[0_8px_32px_rgba(0,0,0,0.5)]">
+
             {/* Header */}
             <div className="mb-8">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-white text-xs font-bold mb-6 uppercase tracking-wider">
-                  <Shield className="w-3 h-3" /> Enterprise Portal
+                <Shield className="w-3 h-3" /> Enterprise Portal
               </div>
               <h1 className="text-3xl font-extrabold tracking-tight text-white mb-2">
                 Welcome Back
@@ -81,7 +83,7 @@ export default function Auth() {
 
             {message ? (
               /* Success State */
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="bg-green-500/10 border border-green-500/20 p-6 rounded-2xl text-center"
@@ -93,9 +95,9 @@ export default function Auth() {
                 </div>
                 <h3 className="text-xl font-bold text-white mb-2">Magic Link Sent!</h3>
                 <p className="text-white/60 text-sm mb-6">
-                  We sent a secure login link to <br/> <span className="text-white font-medium">{email}</span>
+                  We sent a secure login link to <br /> <span className="text-white font-medium">{email}</span>
                 </p>
-                <button 
+                <button
                   onClick={() => setMessage('')}
                   className="text-sm text-green-400 hover:text-green-300 font-medium flex items-center justify-center gap-2 mx-auto transition-colors"
                 >
@@ -105,9 +107,9 @@ export default function Auth() {
             ) : (
               /* Login Options */
               <div className="space-y-6">
-                
+
                 {/* Google Button */}
-                <button 
+                <button
                   onClick={handleGoogleLogin}
                   className="w-full group bg-white text-black font-bold py-4 px-6 rounded-xl flex items-center justify-center gap-3 hover:bg-slate-200 transition-all duration-200 shadow-lg"
                 >
@@ -136,12 +138,12 @@ export default function Auth() {
                     </div>
                   </div>
 
-                  <button 
-                    disabled={loading} 
+                  <button
+                    disabled={loading}
                     className="w-full bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
                   >
                     {loading ? (
-                      "Sending Link..." 
+                      "Sending Link..."
                     ) : (
                       <>Send Magic Link <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" /></>
                     )}
@@ -150,7 +152,7 @@ export default function Auth() {
               </div>
             )}
           </div>
-          
+
           {/* Footer */}
           <div className="text-center mt-8 text-white/30 text-xs">
             <div className="flex items-center justify-center gap-2 mb-2">
@@ -163,29 +165,29 @@ export default function Auth() {
       {/* ================= RIGHT COLUMN: IMAGE ================= */}
       <div className="hidden lg:block relative w-full h-full overflow-hidden bg-black">
         {/* The Image */}
-        <img 
-            src={IMAGE_URL} 
-            alt="Enterprise Security Infrastructure" 
-            className="absolute inset-0 w-full h-full object-cover scale-105"
+        <img
+          src={IMAGE_URL}
+          alt="Enterprise Security Infrastructure"
+          className="absolute inset-0 w-full h-full object-cover scale-105"
         />
-        
+
         {/* Dark Overlays for Theme Consistency */}
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/30 mix-blend-multiply"></div>
         <div className="absolute inset-0 bg-gradient-to-r from-black via-transparent to-transparent"></div>
 
         {/* Content Overlay */}
         <div className="absolute bottom-0 left-0 p-16 z-20 max-w-xl">
-            <div className="h-1 w-12 bg-white/30 rounded-full mb-6"></div>
-            <h2 className="text-4xl font-extrabold text-white mb-4 leading-tight drop-shadow-lg">
-                Secure your AI infrastructure.
-            </h2>
-            <p className="text-white/70 text-lg leading-relaxed drop-shadow-md">
-                Deploy confidently with automated compliance auditing and real-time threat detection for your LLM pipelines.
-            </p>
-             <div className="mt-8 flex items-center gap-4 text-white/60 text-sm font-medium">
-                <div className="flex items-center gap-2"><Server className="w-4 h-4"/> 99.99% Uptime</div>
-                <div className="flex items-center gap-2"><Shield className="w-4 h-4"/> End-to-End Encrypted</div>
-            </div>
+          <div className="h-1 w-12 bg-white/30 rounded-full mb-6"></div>
+          <h2 className="text-4xl font-extrabold text-white mb-4 leading-tight drop-shadow-lg">
+            Secure your AI infrastructure.
+          </h2>
+          <p className="text-white/70 text-lg leading-relaxed drop-shadow-md">
+            Deploy confidently with automated compliance auditing and real-time threat detection for your LLM pipelines.
+          </p>
+          <div className="mt-8 flex items-center gap-4 text-white/60 text-sm font-medium">
+            <div className="flex items-center gap-2"><Server className="w-4 h-4" /> 99.99% Uptime</div>
+            <div className="flex items-center gap-2"><Shield className="w-4 h-4" /> End-to-End Encrypted</div>
+          </div>
         </div>
       </div>
 
